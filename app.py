@@ -207,6 +207,7 @@ def _parse_filters() -> dict:
 
     filters = {
         "page": page,
+        "group_by": request.args.get("group_by", "").strip().lower(),
         "item_ids": _int_list("item_id"),
         "item_match": item_match,
         "ship_type_id": _int("ship_type_id"),
@@ -224,6 +225,8 @@ def _parse_filters() -> dict:
     }
     if filters["route_flag"] not in {"shortest", "secure"}:
         filters["route_flag"] = "shortest"
+    if filters["group_by"] not in {"", "system", "victim_ship"}:
+        filters["group_by"] = ""
 
     # Build a querystring without 'page', 'sort', 'order' for link generation
     qs_pairs = []
@@ -256,7 +259,11 @@ def index():
         "gank_filter": filters["gank_filter"],
     }
 
-    if filters["sort"] == "jumps" and filters["route_source_system_id"]:
+    fetch_all_rows = bool(filters["group_by"]) or (
+        filters["sort"] == "jumps" and filters["route_source_system_id"]
+    )
+
+    if fetch_all_rows:
         _, total_count = db.get_killmails_page(
             g.db,
             page=1,
@@ -337,13 +344,31 @@ def index():
             reverse=(filters["order"] == "desc"),
         )
         kills = known_jumps + unknown_jumps
-        start = (filters["page"] - 1) * config.PAGE_SIZE
-        end = start + config.PAGE_SIZE
-        kills = kills[start:end]
+        if not filters["group_by"]:
+            start = (filters["page"] - 1) * config.PAGE_SIZE
+            end = start + config.PAGE_SIZE
+            kills = kills[start:end]
+
+    grouped_kills = []
+    if filters["group_by"]:
+        grouped_rows: dict[str, list[dict]] = {}
+        for kill in kills:
+            if filters["group_by"] == "system":
+                key = kill.get("system_name") or str(kill.get("solar_system_id") or "Unknown")
+            else:
+                key = kill.get("victim_ship_name") or "Unknown"
+            grouped_rows.setdefault(key, []).append(kill)
+        grouped_kills = [
+            {"key": key, "rows": rows, "count": len(rows)}
+            for key, rows in grouped_rows.items()
+        ]
+    else:
+        kills = kills[:config.PAGE_SIZE]
 
     return render_template(
         "index.html",
         kills=kills,
+        grouped_kills=grouped_kills,
         total_count=total_count,
         total_pages=total_pages,
         isk_lost_bounds=isk_lost_bounds,

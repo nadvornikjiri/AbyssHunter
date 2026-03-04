@@ -131,6 +131,30 @@
   background: color-mix(in srgb, var(--pico-muted-border-color) 25%, transparent);
 }
 
+.group-header {
+  margin: 0;
+  padding: 0.15rem 0;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-weight: 600;
+}
+
+.group-header .group-caret {
+  display: inline-block;
+  width: 1rem;
+}
+
+.group-header[aria-expanded="true"] .group-caret {
+  transform: rotate(90deg);
+}
+
+.group-child.is-hidden {
+  display: none;
+}
+
 .result-count { margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--pico-muted-color); }
 
 /* Security badge */
