@@ -10,8 +10,9 @@ ZKILL_RATE_LIMIT = 1.0   # zKillboard requires polite pacing between page reques
 # Batch download settings
 ESI_CONCURRENCY      = 20   # concurrent ESI killmail fetches via aiohttp
 ZKILL_MAX_PAGES      = 200  # safety cap on zKillboard history pagination (200 kills/page)
-INGEST_BATCH_SIZE    = 200  # commit to DB after every N newly fetched killmails
-EVEREF_DL_CONNECTIONS = 8   # parallel HTTP Range connections per EVE Ref archive download
+INGEST_BATCH_SIZE    = 1000  # commit to DB after every N newly fetched killmails
+EVEREF_DL_CONNECTIONS  = 8   # parallel download workers (one full connection per file)
+EVEREF_INGEST_WORKERS  = 8   # parallel prepare workers (filter + build row tuples per day)
 
 # Gank detection
 CONCORD_CORP_ID     = 1000125

@@ -836,12 +836,12 @@ def sync_kills_everef(
     Killmail hashes are unavailable from EVE Ref and stored as empty strings.
 
     Performance:
-    - All daily archives are downloaded in parallel (up to EVEREF_DL_CONNECTIONS
-      concurrent workers, one full connection per file — no byte-range chunking).
-    - Futures are kept in original date order; ingestion iterates them in order
-      so DB writes stay sequential.
-    - Data preparation uses ThreadPoolExecutor(8); DB writes use 4 bulk executemany
-      calls per day instead of ~90k individual INSERT calls.
+    - Downloads: all daily archives fetched in parallel (EVEREF_DL_CONNECTIONS
+      workers, one full connection per file).
+    - Ingestion: up to EVEREF_INGEST_WORKERS days prepared concurrently — each
+      worker waits for its download future then filters + builds row tuples from
+      in-memory dicts. DB writes remain sequential (SQLite single-writer).
+    - 4 bulk executemany calls per day instead of ~90k individual INSERTs.
 
     cancel_event: optional threading.Event — set it to abort the sync cleanly.
     progress: optional dict updated in-place for live status reporting.
@@ -880,12 +880,20 @@ def sync_kills_everef(
     all_type_ids: set = set()
 
     # -----------------------------------------------------------------------
-    # Submit all archive downloads in parallel (up to EVEREF_DL_CONNECTIONS
-    # workers, one full HTTP connection per file). Futures are kept in original
-    # date order; ingestion iterates them in order so DB writes stay sequential.
+    # Stage 1: download all archives in parallel (EVEREF_DL_CONNECTIONS workers).
+    # Stage 2: prepare rows in parallel (EVEREF_INGEST_WORKERS workers) — each
+    #          worker waits for its download future then filters + builds row
+    #          tuples from in-memory dicts. Safe to run concurrently because
+    #          all shared data (prices, system_sec_map, known_ids) is read-only
+    #          at this point.
+    # Stage 3: DB writes (main thread, sequential — SQLite single-writer).
     # -----------------------------------------------------------------------
-    n_dl_workers = min(len(dates), config.EVEREF_DL_CONNECTIONS)
-    logger.info("EVE Ref: submitting %d download(s) with %d parallel workers", len(dates), n_dl_workers)
+    n_dl_workers     = min(len(dates), config.EVEREF_DL_CONNECTIONS)
+    n_ingest_workers = min(len(dates), config.EVEREF_INGEST_WORKERS)
+    logger.info(
+        "EVE Ref: %d date(s), %d download workers, %d ingest workers",
+        len(dates), n_dl_workers, n_ingest_workers,
+    )
 
     # Shared dict updated in real-time by download threads for per-file progress bars
     dl_file_progress: dict = {}
@@ -906,13 +914,32 @@ def sync_kills_everef(
     )
     dl_fn = functools.partial(_download_everef_day, file_progress=dl_file_progress)
     futures_in_order = [dl_pool.submit(dl_fn, d) for d in dates]
-    dl_pool.shutdown(wait=False)  # threads keep running; results collected via .result()
+    dl_pool.shutdown(wait=False)
 
-    # Rate tracking — download
-    dl_bytes_total: int = 0
-    dl_files_done: int = 0
-    dl_cp_time: float = time.monotonic()
-    dl_cp_bytes: int = 0
+    def _ingest_day(date_str: str, dl_future) -> tuple:
+        """
+        Ingest worker: block until the download future resolves, filter out
+        already-known kills, and build row tuples from in-memory dicts.
+        Read-only access to shared objects — safe to run concurrently.
+        Returns (date_str, n_bytes, total_kills, already_known, prepared_rows).
+        """
+        kills, n_bytes = dl_future.result()
+        new_kills = [km for km in kills if km["killmail_id"] not in known_ids]
+        already_known = len(kills) - len(new_kills)
+        if not new_kills:
+            return date_str, n_bytes, len(kills), already_known, []
+        fn = functools.partial(_prepare_kill_rows, prices=prices, system_sec_map=system_sec_map)
+        prepared = [fn(km) for km in new_kills]
+        return date_str, n_bytes, len(kills), already_known, prepared
+
+    ingest_pool = concurrent.futures.ThreadPoolExecutor(
+        max_workers=n_ingest_workers, thread_name_prefix="everef-ingest"
+    )
+    ingest_futures = [
+        ingest_pool.submit(_ingest_day, d, f)
+        for d, f in zip(dates, futures_in_order)
+    ]
+    ingest_pool.shutdown(wait=False)
 
     # Rate tracking — ingestion
     ingest_records_done: int = 0  # total records ingested (for rate badge)
@@ -922,58 +949,28 @@ def sync_kills_everef(
 
     ingested_any = False
 
-    for date_str, future in zip(dates, futures_in_order):
+    for date_str, ingest_future in zip(dates, ingest_futures):
         if _cancelled():
-            future.cancel()
+            ingest_future.cancel()
             continue
 
-        kills, n_bytes = future.result()  # block until this specific day's download finishes
+        date_str, n_bytes, total_kills, already_known, prepared = ingest_future.result()
 
-        # Update download progress and rate
-        dl_bytes_total += n_bytes
-        dl_files_done += 1
-        now = time.monotonic()
-        dt = now - dl_cp_time
-        dl_rate = (dl_bytes_total - dl_cp_bytes) / dt / 1_048_576 if dt > 0.05 else 0.0
-        dl_cp_time = now
-        dl_cp_bytes = dl_bytes_total
-        _prog(
-            dl_files_done=dl_files_done,
-            dl_bytes_done=round(dl_bytes_total / 1_048_576, 1),
-            dl_rate_mbps=round(max(0.0, dl_rate), 2),
-            message=f"Downloaded {date_str} ({dl_files_done}/{len(dates)} files, "
-                    f"{dl_bytes_total / 1_048_576:.1f} MB)",
-        )
-
-        if _cancelled():
-            summary["fetched"] += len(kills)
-            continue
-
-        summary["fetched"] += len(kills)
-
-        new_kills = [km for km in kills if km["killmail_id"] not in known_ids]
-        already_known = len(kills) - len(new_kills)
+        summary["fetched"] += total_kills
         summary["skipped"] += already_known
         logger.info(
             "EVE Ref %s: %d total, %d new, %d already in DB",
-            date_str, len(kills), len(new_kills), already_known,
+            date_str, total_kills, total_kills - already_known, already_known,
         )
 
-        if not new_kills:
-            ingest_days_done += 1
+        ingest_days_done += 1
+
+        if not prepared:
             _prog(ingest_done=ingest_days_done, message=f"{date_str}: no new kills")
             continue
 
-        # Parallel data preparation: 8 workers build row tuples from in-memory dicts
-        _prog(
-            phase="preparing",
-            message=f"{date_str}: preparing {len(new_kills):,} kills…",
-        )
-        fn = functools.partial(
-            _prepare_kill_rows, prices=prices, system_sec_map=system_sec_map
-        )
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            prepared = list(pool.map(fn, new_kills, chunksize=250))
+        if _cancelled():
+            continue
 
         # Bulk write: 4 executemany calls instead of ~90k individual INSERT calls
         _prog(
@@ -994,9 +991,7 @@ def sync_kills_everef(
         summary["new"]      += len(prepared)
         ingested_any = True
 
-        # Update ingestion progress and rate
         ingest_records_done += len(prepared)
-        ingest_days_done += 1
         now = time.monotonic()
         dt = now - ingest_cp_time
         ingest_rate = (ingest_records_done - ingest_cp_done) / dt if dt > 0.05 else 0.0

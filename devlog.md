@@ -1,5 +1,13 @@
 # Devlog
 
+## 2026-03-04 — Parallel ingestion (download + prepare overlap)
+
+### Changes
+- **config.py**: Added `EVEREF_INGEST_WORKERS = 8`. Renamed `EVEREF_DL_CONNECTIONS` comment for clarity.
+- **fetcher.py**: Replaced the sequential download→prepare→write loop with a two-pool pipeline. An `ingest_pool` (up to `EVEREF_INGEST_WORKERS` workers) submits one `_ingest_day` closure per date; each worker blocks on its download future, then filters new kills and prepares row tuples from in-memory dicts. All shared data accessed by workers is read-only (`prices`, `system_sec_map`, `known_ids`). The main thread collects ingest futures in date order and performs sequential DB writes. Removed the inner per-day `ThreadPoolExecutor` — each ingest worker now does preparation sequentially in its own thread, giving equivalent CPU utilisation with simpler structure.
+
+---
+
 ## 2026-03-04 — Gank detection candidate progress tracking
 
 ### Changes
