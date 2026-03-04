@@ -25,6 +25,69 @@ app = Flask(__name__)
 app.secret_key = "eve-killmail-browser-dev-secret"  # change for production
 
 
+EFT_FLAG_GROUPS = {
+    "low": set(range(11, 19)),
+    "mid": set(range(19, 27)),
+    "high": set(range(27, 35)),
+    "rig": set(range(92, 100)),
+    "subsystem": set(range(125, 133)),
+    "service": set(range(164, 172)),
+    "cargo": {5},
+    "drone": {87},
+    "fighter": {158},
+    "implant": {89},
+    "booster": {88},
+}
+
+
+def _eft_line(item_name: str, qty: int) -> str:
+    return f"{item_name} x{qty}" if qty > 1 else item_name
+
+
+def build_eft_export(victim: dict, items: list[dict]) -> str:
+    """Build an EFT-like export string compatible with pyfa paste import."""
+    ship_name = (victim.get("ship_name") or f"Type ID {victim['ship_type_id']}").strip()
+    lines = [f"[{ship_name}, Loss #{victim['killmail_id']}]"]
+
+    grouped: dict[str, list[str]] = {
+        "low": [], "mid": [], "high": [], "rig": [], "subsystem": [], "service": [],
+        "cargo": [], "drone": [], "fighter": [], "implant": [], "booster": [], "other": [],
+    }
+
+    for item in items:
+        qty = int(item.get("quantity_dropped", 0) or 0) + int(item.get("quantity_destroyed", 0) or 0)
+        if qty <= 0:
+            continue
+        name = (item.get("item_name") or f"Type ID {item['item_type_id']}").strip()
+        line = _eft_line(name, qty)
+        flag = int(item.get("flag", 0) or 0)
+        group = next((k for k, flags in EFT_FLAG_GROUPS.items() if flag in flags), "other")
+        grouped[group].append(line)
+
+    for section in ("high", "mid", "low", "rig", "subsystem", "service"):
+        lines.extend(grouped[section])
+        lines.append("")
+
+    named_sections = (
+        ("cargo", "Cargo"),
+        ("drone", "Drone Bay"),
+        ("fighter", "Fighter Bay"),
+        ("implant", "Implants"),
+        ("booster", "Boosters"),
+        ("other", "Other"),
+    )
+    for section, label in named_sections:
+        if not grouped[section]:
+            continue
+        lines.append(f"{label}:")
+        lines.extend(grouped[section])
+        lines.append("")
+
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # DB lifecycle
 # ---------------------------------------------------------------------------
@@ -175,6 +238,9 @@ def kill_detail(killmail_id: int):
         item["isk_dropped"]   = p * item["quantity_dropped"]
         item["isk_destroyed"] = p * item["quantity_destroyed"]
         item["isk_total"]     = item["isk_dropped"] + item["isk_destroyed"]
+    detail["victim"] = dict(detail["victim"])
+    detail["victim"]["killmail_id"] = killmail_id
+    detail["eft_export"] = build_eft_export(detail["victim"], detail["items"])
     return render_template("kill_detail.html", **detail)
 
 

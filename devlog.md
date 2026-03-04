@@ -1,5 +1,14 @@
 # Devlog
 
+## 2026-03-04 — Kill detail EFT export for pyfa
+
+### Changes
+- **app.py**: Added `build_eft_export()` to convert a killmail's victim ship + item flags into EFT-format sections (high/mid/low/rig/subsystem/service plus cargo/drone/fighter/implants/boosters) and pass the string to the kill detail template.
+- **kill_detail.html**: Added a new `Copy EFT` action with a readonly export textarea and clipboard copy fallback behavior.
+- **style.css**: Styled the EFT export block and monospaced textarea for copy/paste readability.
+
+---
+
 ## 2026-03-04 — Jita IV-4 minimum sell prices replace ESI adjusted prices
 
 ### Changes
