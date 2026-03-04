@@ -174,9 +174,26 @@
         <thead>
           <tr>
             {{ sort_th('Time (UTC)', 'time') }}
-            {{ sort_th('System', 'system') }}
+            <th class="sortable{% if filters.sort == 'system' %} sort-active{% endif %}" data-group-col="system">
+              <div class="th-controls">
+                <a href="?{{ filters.filter_qs }}{% if filters.filter_qs %}&{% endif %}sort=system&order={{ 'asc' if (filters.sort == 'system' and filters.order == 'desc') else 'desc' }}">
+                  System
+                  {% if filters.sort == 'system' %}
+                    <span class="sort-arrow">{{ '▲' if filters.order == 'asc' else '▼' }}</span>
+                  {% else %}
+                    <span class="sort-arrow muted">⇅</span>
+                  {% endif %}
+                </a>
+                <button type="button" class="group-toggle" data-group-target="system">Group</button>
+              </div>
+            </th>
             {{ sort_th('Sec', 'sec') }}
-            <th>Victim Ship</th>
+            <th data-group-col="victim_ship">
+              <div class="th-controls">
+                <span>Victim Ship</span>
+                <button type="button" class="group-toggle" data-group-target="victim_ship">Group</button>
+              </div>
+            </th>
             {{ sort_th('Attackers', 'attackers') }}
             {{ sort_th('ISK Lost', 'total_value') }}
             {{ sort_th('ISK Dropped', 'dropped_value') }}
@@ -191,13 +208,13 @@
                 {{ kill.killmail_time[:16].replace('T', ' ') }}
               </a>
             </td>
-            <td class="system-name"><a href="/?system_id={{ kill.solar_system_id }}">{{ kill.system_name or kill.solar_system_id }}</a></td>
+            <td class="system-name" data-group-target="system" data-group-value="{{ kill.system_name or kill.solar_system_id }}"><a href="/?system_id={{ kill.solar_system_id }}">{{ kill.system_name or kill.solar_system_id }}</a></td>
             <td>
               <span class="sec-badge {{ kill.security_status | security_color }}">
                 {{ kill.security_status | security_display }}
               </span>
             </td>
-            <td>
+            <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}">
               {% if kill.victim_ship_name %}
                 <a href="/?ship_type_id={{ kill.victim_ship_type_id }}">{{ kill.victim_ship_name }}</a>
               {% else %}
@@ -468,11 +485,75 @@ function setupMultiItemFilter() {
   setupAutocomplete('item-name-input', null, '/api/type-search', 'type_id', addItem);
 }
 
+function setupKillListGrouping() {
+  const table = document.querySelector('.kill-table');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  if (!tbody) return;
+
+  const groupButtons = Array.from(document.querySelectorAll('.group-toggle'));
+  if (!groupButtons.length) return;
+
+  const originalRows = Array.from(tbody.querySelectorAll('tr'));
+  let activeGroup = null;
+
+  function setButtonState() {
+    groupButtons.forEach((button) => {
+      const isActive = button.dataset.groupTarget === activeGroup;
+      button.textContent = isActive ? 'Ungroup' : 'Group';
+      button.classList.toggle('active', isActive);
+    });
+  }
+
+  function buildGroupedRows(target) {
+    const groups = new Map();
+    originalRows.forEach((row) => {
+      const keyCell = row.querySelector(`td[data-group-target="${target}"]`);
+      const key = keyCell?.dataset.groupValue || keyCell?.textContent?.trim() || 'Unknown';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    });
+
+    const fragment = document.createDocumentFragment();
+    groups.forEach((rows, key) => {
+      const groupRow = document.createElement('tr');
+      groupRow.className = 'group-row';
+      const groupCell = document.createElement('td');
+      groupCell.colSpan = 8;
+      groupCell.textContent = `${key} (${rows.length})`;
+      groupRow.appendChild(groupCell);
+      fragment.appendChild(groupRow);
+      rows.forEach((row) => fragment.appendChild(row));
+    });
+    return fragment;
+  }
+
+  function render() {
+    tbody.innerHTML = '';
+    if (!activeGroup) {
+      originalRows.forEach((row) => tbody.appendChild(row));
+      return;
+    }
+    tbody.appendChild(buildGroupedRows(activeGroup));
+  }
+
+  groupButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      activeGroup = (activeGroup === button.dataset.groupTarget) ? null : button.dataset.groupTarget;
+      setButtonState();
+      render();
+    });
+  });
+
+  setButtonState();
+}
+
 restoreRememberedFilters();
 setupMultiItemFilter();
 rememberFiltersOnSubmit();
 setupAutocomplete('ship-name-input', 'ship_type_id', '/api/type-search', 'type_id');
 setupAutocomplete('system-name-input', 'system_id', '/api/system-search', 'system_id');
 setupIskRangeFilter();
+setupKillListGrouping();
 </script>
 {% endblock %}
