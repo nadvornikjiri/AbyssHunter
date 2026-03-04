@@ -1,5 +1,14 @@
 # Devlog
 
+## 2026-03-04 — Gank detection candidate progress tracking
+
+### Changes
+- **gank.py**: `run_phase2_gank_detection` now emits `gank_total` / `gank_done` progress through the deduplication loop. After the bulk SQL query returns `N` candidate pairs, progress updates are emitted every `N/200` rows (max ~200 updates). While the SQL is still running the bar stays indeterminate (`gank_total=0`); once the query returns it becomes determinate.
+- **app.py**: Added `gank_total: 0` and `gank_done: 0` to the initial progress dict.
+- **sync_progress.html**: Gank bar switches from indeterminate to determinate as soon as `gank_total > 0`. Label shows `"X / Y candidate pairs"` while running and the confirmed count when done.
+
+---
+
 ## 2026-03-04 — Day-based ingestion progress + gank detection progress bar
 
 ### Changes

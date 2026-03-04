@@ -193,14 +193,22 @@
 
     // Gank detection bar
     const gankPhase = data.gank_phase || 'idle';
+    const gankTotal = data.gank_total || 0;
+    const gankDone  = data.gank_done  || 0;
     if (gankPhase === 'done') {
       gankBar.max   = 1;
       gankBar.value = 1;
       gankLabel.textContent = `${fmt(data.gank_confirmed || 0)} confirmed gank(s)` +
         (data.gank_checked ? ` · ${fmt(data.gank_checked)} CONCORD kills checked` : '');
     } else if (gankPhase === 'running') {
-      gankBar.removeAttribute('value');
-      gankLabel.textContent = 'Finding CONCORD matches…';
+      if (gankTotal > 0) {
+        gankBar.max   = gankTotal;
+        gankBar.value = gankDone;
+        gankLabel.textContent = `${fmt(gankDone)} / ${fmt(gankTotal)} candidate pairs`;
+      } else {
+        gankBar.removeAttribute('value');
+        gankLabel.textContent = 'Querying CONCORD matches…';
+      }
     } else {
       gankBar.removeAttribute('value');
       gankLabel.textContent = 'Pending…';

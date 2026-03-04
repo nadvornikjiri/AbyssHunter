@@ -203,6 +203,8 @@ def sync():
             "ingest_rate_rps": 0.0,
             # Gank detection progress
             "gank_phase": "idle",
+            "gank_total": 0,
+            "gank_done": 0,
             "gank_confirmed": 0,
             "gank_checked": 0,
             "summary": None,

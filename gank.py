@@ -68,7 +68,8 @@ def run_phase2_gank_detection(conn, progress: Optional[dict] = None) -> dict:
         if progress is not None:
             progress.update(kw)
 
-    _p(gank_phase="running", message="Running gank detection — finding CONCORD matches…")
+    _p(gank_phase="running", gank_total=0, gank_done=0,
+       message="Running gank detection — querying CONCORD matches…")
     matches = db.bulk_find_ganked_kills(
         conn,
         window=config.GANK_KILL_ID_WINDOW,
@@ -77,16 +78,24 @@ def run_phase2_gank_detection(conn, progress: Optional[dict] = None) -> dict:
     )
     logger.info("Phase 2 gank detection: bulk query returned %d candidate pairs", len(matches))
 
+    n_matches = len(matches)
+    _p(gank_total=n_matches, gank_done=0,
+       message=f"Processing {n_matches:,} candidate pairs…")
+
     # Deduplicate: a victim kill may appear under multiple CONCORD kills
     # (fleet gank — several gankers were killed by CONCORD). Keep first occurrence.
+    step = max(1, n_matches // 200)  # ~200 progress updates max
     seen_victims: set = set()
     rows_to_update = []
-    for row in matches:
+    for i, row in enumerate(matches):
         victim_kill_id  = row["victim_kill_id"]
         concord_kill_id = row["concord_kill_id"]
         if victim_kill_id not in seen_victims:
             seen_victims.add(victim_kill_id)
             rows_to_update.append((concord_kill_id, victim_kill_id))
+        if (i + 1) % step == 0:
+            _p(gank_done=i + 1)
+    _p(gank_done=n_matches)
 
     # Bulk update: mark confirmed + ensure candidate flag + link CONCORD kill.
     # AND is_confirmed_gank = 0 guard ensures already-confirmed kills are untouched.
