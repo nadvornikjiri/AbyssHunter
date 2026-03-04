@@ -351,6 +351,7 @@ def upsert_system(conn: sqlite3.Connection, system_data: dict) -> None:
 
 _SORT_MAP = {
     "time":          "k.killmail_time",
+    "system":        "COALESCE(sc.name, '')",
     "sec":           "k.security_status",
     "total_value":   "k.total_value",
     "dropped_value": "k.dropped_value",
@@ -364,6 +365,7 @@ def get_killmails_page(
     page_size: int,
     item_id: Optional[int] = None,
     ship_type_id: Optional[int] = None,
+    system_id: Optional[int] = None,
     min_sec: Optional[float] = None,
     max_sec: Optional[float] = None,
     ganks_only: bool = False,
@@ -390,6 +392,10 @@ def get_killmails_page(
             )"""
         )
         params.extend([ship_type_id, ship_type_id])
+
+    if system_id is not None:
+        where_clauses.append("k.solar_system_id = ?")
+        params.append(system_id)
 
     if min_sec is not None:
         where_clauses.append("k.security_status >= ?")
@@ -755,5 +761,12 @@ def reinit_db() -> int:
 def search_type_cache(conn: sqlite3.Connection, query: str, limit: int = 20) -> list:
     return conn.execute(
         "SELECT type_id, name FROM type_cache WHERE name LIKE ? ORDER BY name LIMIT ?",
+        (f"%{query}%", limit),
+    ).fetchall()
+
+
+def search_system_cache(conn: sqlite3.Connection, query: str, limit: int = 20) -> list:
+    return conn.execute(
+        "SELECT system_id, name FROM system_cache WHERE name LIKE ? ORDER BY name LIMIT ?",
         (f"%{query}%", limit),
     ).fetchall()

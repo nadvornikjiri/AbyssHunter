@@ -158,7 +158,7 @@ def _parse_filters() -> dict:
         except ValueError:
             return None
 
-    _SORT_COLS = {"time", "sec", "total_value", "dropped_value", "attackers"}
+    _SORT_COLS = {"time", "system", "sec", "total_value", "dropped_value", "attackers"}
     sort = request.args.get("sort", "time")
     if sort not in _SORT_COLS:
         sort = "time"
@@ -171,6 +171,7 @@ def _parse_filters() -> dict:
         "page": page,
         "item_id": _int("item_id"),
         "ship_type_id": _int("ship_type_id"),
+        "system_id": _int("system_id"),
         "min_sec": _float("min_sec"),
         "max_sec": _float("max_sec"),
         "ganks_only": bool(request.args.get("ganks_only")),
@@ -197,6 +198,7 @@ def index():
         page_size=config.PAGE_SIZE,
         item_id=filters["item_id"],
         ship_type_id=filters["ship_type_id"],
+        system_id=filters["system_id"],
         min_sec=filters["min_sec"],
         max_sec=filters["max_sec"],
         ganks_only=filters["ganks_only"],
@@ -208,12 +210,16 @@ def index():
     # Resolve filter label names for display in the form
     item_name = None
     ship_name = None
+    system_name = None
     if filters["item_id"]:
         row = db.get_cached_type(g.db, filters["item_id"])
         item_name = row["name"] if row else str(filters["item_id"])
     if filters["ship_type_id"]:
         row = db.get_cached_type(g.db, filters["ship_type_id"])
         ship_name = row["name"] if row else str(filters["ship_type_id"])
+    if filters["system_id"]:
+        row = db.get_cached_system(g.db, filters["system_id"])
+        system_name = row["name"] if row else str(filters["system_id"])
 
     return render_template(
         "index.html",
@@ -223,6 +229,7 @@ def index():
         filters=filters,
         item_name=item_name,
         ship_name=ship_name,
+        system_name=system_name,
     )
 
 
@@ -416,6 +423,15 @@ def type_search():
         return jsonify([])
     results = db.search_type_cache(g.db, query, limit=20)
     return jsonify([{"type_id": r["type_id"], "name": r["name"]} for r in results])
+
+
+@app.route("/api/system-search")
+def system_search():
+    query = request.args.get("q", "").strip()
+    if len(query) < 2:
+        return jsonify([])
+    results = db.search_system_cache(g.db, query, limit=20)
+    return jsonify([{"system_id": r["system_id"], "name": r["name"]} for r in results])
 
 
 # ---------------------------------------------------------------------------
