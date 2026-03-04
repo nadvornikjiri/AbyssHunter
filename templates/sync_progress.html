@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}Syncing… — Eve Killmail Browser{% endblock %}
+
+{% block content %}
+<article class="sync-page">
+  <header>
+    <h2>Bulk Download in Progress</h2>
+  </header>
+
+  <div id="progress-section">
+    <p id="status-msg">Starting…</p>
+
+    <label>Download progress (overall)</label>
+    <progress id="dl-bar" max="1"></progress>
+    <div class="progress-stats">
+      <span id="dl-label"></span>
+      <span id="dl-rate" class="rate-badge"></span>
+    </div>
+    <div id="dl-file-bars"></div>
+
+    <br>
+
+    <label>Ingestion progress (overall)</label>
+    <progress id="ingest-bar" max="1"></progress>
+    <div class="progress-stats">
+      <span id="ingest-label"></span>
+      <span id="ingest-rate" class="rate-badge"></span>
+    </div>
+
+    <br>
+
+    <label>Gank detection</label>
+    <progress id="gank-bar"></progress>
+    <div class="progress-stats">
+      <span id="gank-label">Pending…</span>
+    </div>
+
+    <div id="cancel-row">
+      <button id="cancel-btn" class="outline secondary" onclick="cancelSync()">
+        ✕ Cancel
+      </button>
+    </div>
+  </div>
+
+  <div id="done-section" style="display:none">
+    <ins id="summary-box"></ins>
+    <br>
+    <a href="/" role="button">View kills</a>
+    &nbsp;
+    <a href="{{ url_for('sync') }}" role="button" class="secondary">Sync again</a>
+  </div>
+
+  <div id="error-section" style="display:none">
+    <mark id="error-msg"></mark>
+    <br><br>
+    <a href="{{ url_for('sync') }}" role="button" class="secondary">Back to sync</a>
+  </div>
+</article>
+
+<script>
+(function () {
+  const statusUrl = {{ url_for('sync_status', job_id=job_id) | tojson }};
+  const cancelUrl = {{ url_for('sync_cancel', job_id=job_id) | tojson }};
+
+  const statusMsg   = document.getElementById('status-msg');
+  const dlBar       = document.getElementById('dl-bar');
+  const dlLabel     = document.getElementById('dl-label');
+  const dlRate      = document.getElementById('dl-rate');
+  const dlFileBars  = document.getElementById('dl-file-bars');
+  const ingestBar   = document.getElementById('ingest-bar');
+  const ingestLabel = document.getElementById('ingest-label');
+  const ingestRate  = document.getElementById('ingest-rate');
+  const gankBar     = document.getElementById('gank-bar');
+  const gankLabel   = document.getElementById('gank-label');
+  const cancelBtn   = document.getElementById('cancel-btn');
+
+  function fmt(n) { return Math.round(n).toLocaleString(); }
+
+  // Client-side state for download rate calculation
+  let _dlLastTime  = Date.now();
+  let _dlLastBytes = 0;
+
+  // Per-file bar state: dateStr -> { el, doneSeenAt (ms) | null }
+  const _fileBars = {};
+  // Files that have been removed — never recreate them
+  const _removedFiles = new Set();
+
+  function updateFileBars(fp) {
+    if (!fp) return;
+    const now = Date.now();
+
+    for (const [dateStr, info] of Object.entries(fp)) {
+      if (_removedFiles.has(dateStr)) continue;
+
+      if (!_fileBars[dateStr]) {
+        const row = document.createElement('div');
+        row.className = 'file-progress-row';
+        row.innerHTML =
+          `<span class="file-date">${dateStr}</span>` +
+          `<progress class="file-bar"></progress>` +
+          `<span class="file-size"></span>`;
+        dlFileBars.appendChild(row);
+        _fileBars[dateStr] = { el: row, doneSeenAt: null };
+      }
+
+      const entry = _fileBars[dateStr];
+      const bar  = entry.el.querySelector('.file-bar');
+      const size = entry.el.querySelector('.file-size');
+
+      if (info.bytes_total > 0) {
+        bar.max   = info.bytes_total;
+        bar.value = info.bytes_done;
+      } else {
+        bar.removeAttribute('value');
+      }
+
+      const doneMB  = (info.bytes_done  / 1048576).toFixed(1);
+      const totalMB = info.bytes_total > 0
+        ? ` / ${(info.bytes_total / 1048576).toFixed(1)} MB` : '';
+      size.textContent = doneMB + totalMB + ' MB';
+
+      if (info.done && entry.doneSeenAt === null) {
+        entry.doneSeenAt = now;
+      }
+    }
+
+    // Remove bars that have been done for >= 1 second
+    for (const [dateStr, entry] of Object.entries(_fileBars)) {
+      if (entry.doneSeenAt !== null && now - entry.doneSeenAt >= 1000) {
+        entry.el.remove();
+        delete _fileBars[dateStr];
+        _removedFiles.add(dateStr);
+      }
+    }
+  }
+
+  async function cancelSync() {
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = 'Cancelling…';
+    try { await fetch(cancelUrl, { method: 'POST' }); } catch (_) {}
+  }
+
+  async function poll() {
+    let data;
+    try {
+      const resp = await fetch(statusUrl);
+      data = await resp.json();
+    } catch (e) {
+      setTimeout(poll, 1000);
+      return;
+    }
+
+    // Per-file download bars
+    updateFileBars(data.dl_file_progress);
+
+    // Overall download bar — derived from per-file progress so it updates
+    // in real-time from download threads, not after ingestion steps.
+    const fp = data.dl_file_progress || {};
+    const dlFilesTotal = data.dl_files_total || 1;
+    let dlFilesDone = 0;
+    let dlBytesDone = 0;
+    for (const info of Object.values(fp)) {
+      if (info.done) dlFilesDone++;
+      dlBytesDone += info.bytes_done || 0;
+    }
+    const pollNow = Date.now();
+    const dt = (pollNow - _dlLastTime) / 1000;
+    const dlRate = dt > 0.05 ? Math.max(0, (dlBytesDone - _dlLastBytes) / dt / 1048576) : 0;
+    _dlLastTime  = pollNow;
+    _dlLastBytes = dlBytesDone;
+
+    dlBar.max   = dlFilesTotal;
+    dlBar.value = dlFilesDone;
+    dlLabel.textContent = `${dlFilesDone} / ${dlFilesTotal} file${dlFilesTotal !== 1 ? 's' : ''}` +
+      (dlBytesDone > 0 ? ` · ${(dlBytesDone / 1048576).toFixed(1)} MB` : '');
+    dlRate.textContent = `${dlRate.toFixed(2)} MB/s`;
+
+    // Ingestion bar — tracks days processed
+    const inTotal   = data.ingest_total || 0;
+    const inDone    = data.ingest_done  || 0;
+    const inRecords = data.ingest_records_done || 0;
+    if (inTotal > 0) {
+      ingestBar.max   = inTotal;
+      ingestBar.value = inDone;
+      ingestLabel.textContent = `${inDone} / ${inTotal} day${inTotal !== 1 ? 's' : ''}` +
+        (inRecords > 0 ? ` · ${fmt(inRecords)} records` : '');
+    } else {
+      ingestBar.removeAttribute('value');
+      ingestLabel.textContent = 'Waiting for downloads…';
+    }
+    ingestRate.textContent = inRecords > 0 && data.ingest_rate_rps != null
+      ? `${fmt(data.ingest_rate_rps)} records/s` : '';
+
+    // Gank detection bar
+    const gankPhase = data.gank_phase || 'idle';
+    if (gankPhase === 'done') {
+      gankBar.max   = 1;
+      gankBar.value = 1;
+      gankLabel.textContent = `${fmt(data.gank_confirmed || 0)} confirmed gank(s)` +
+        (data.gank_checked ? ` · ${fmt(data.gank_checked)} CONCORD kills checked` : '');
+    } else if (gankPhase === 'running') {
+      gankBar.removeAttribute('value');
+      gankLabel.textContent = 'Finding CONCORD matches…';
+    } else {
+      gankBar.removeAttribute('value');
+      gankLabel.textContent = 'Pending…';
+    }
+
+    statusMsg.textContent = data.message || '';
+
+    if (data.done) {
+      document.getElementById('progress-section').style.display = 'none';
+
+      if (data.cancelled) {
+        const s = data.summary || {};
+        document.getElementById('summary-box').innerHTML =
+          `<strong>Sync cancelled.</strong> ` +
+          `${fmt(s.ingested || 0)} kill(s) ingested before cancellation.`;
+        document.getElementById('done-section').style.display = '';
+      } else if (data.error) {
+        document.getElementById('error-msg').textContent = data.error;
+        document.getElementById('error-section').style.display = '';
+      } else {
+        const s = data.summary || {};
+        const g = data.gank_summary || {};
+        document.getElementById('summary-box').innerHTML =
+          `<strong>Done.</strong> ` +
+          `${fmt(s.fetched || 0)} killmails in archives &mdash; ` +
+          `${fmt(s.ingested || 0)} ingested, ${fmt(s.skipped || 0)} skipped, ${s.errors || 0} errors.<br>` +
+          `Gank detection: ${g.newly_confirmed || 0} confirmed` +
+          (g.concord_kills_checked ? ` (${fmt(g.concord_kills_checked)} CONCORD kills checked)` : '') + `.`;
+        document.getElementById('done-section').style.display = '';
+      }
+      return;
+    }
+
+    setTimeout(poll, 300);
+  }
+
+  poll();
+})();
+</script>
+{% endblock %}

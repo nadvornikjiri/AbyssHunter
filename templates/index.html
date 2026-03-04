@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}Kill List — Eve Killmail Browser{% endblock %}
+
+{% block content %}
+<div class="kill-layout">
+
+  <!-- Filter sidebar -->
+  <aside class="filters-panel">
+    <form method="GET" action="/">
+      <fieldset>
+        <legend>Filters</legend>
+
+        <label>
+          Dropped Item
+          <input type="text"
+                 id="item-name-input"
+                 placeholder="e.g. Damage Control II"
+                 value="{{ item_name or '' }}"
+                 autocomplete="off">
+          <input type="hidden" name="item_id" id="item_id" value="{{ filters.item_id or '' }}">
+        </label>
+
+        <label>
+          Ship Type
+          <input type="text"
+                 id="ship-name-input"
+                 placeholder="e.g. Catalyst"
+                 value="{{ ship_name or '' }}"
+                 autocomplete="off">
+          <input type="hidden" name="ship_type_id" id="ship_type_id" value="{{ filters.ship_type_id or '' }}">
+        </label>
+
+        <div class="sec-range">
+          <label>
+            Min Security
+            <input type="number" name="min_sec" step="0.1" min="-1" max="1"
+                   value="{{ filters.min_sec if filters.min_sec is not none else '' }}"
+                   placeholder="-1.0">
+          </label>
+          <label>
+            Max Security
+            <input type="number" name="max_sec" step="0.1" min="-1" max="1"
+                   value="{{ filters.max_sec if filters.max_sec is not none else '' }}"
+                   placeholder="1.0">
+          </label>
+        </div>
+
+        <label class="gank-check">
+          <input type="checkbox" name="ganks_only" value="1"
+                 {% if filters.ganks_only %}checked{% endif %}>
+          Confirmed Ganks Only
+        </label>
+
+        <div class="filter-buttons">
+          <button type="submit">Apply</button>
+          <a href="/" role="button" class="secondary outline">Clear</a>
+        </div>
+      </fieldset>
+    </form>
+  </aside>
+
+  <!-- Kill list -->
+  <section class="kill-list">
+    <div class="list-header">
+      <p class="result-count">
+        {% if total_count == 0 %}
+          No kills found.
+        {% else %}
+          Showing {{ kills|length }} of <strong>{{ total_count }}</strong> kills
+        {% endif %}
+      </p>
+    </div>
+
+    {# ── Sort link macro ──────────────────────────────────────────────────── #}
+    {% macro sort_th(label, col) %}
+      {%- set active = (filters.sort == col) -%}
+      {%- set next_order = 'asc' if (active and filters.order == 'desc') else 'desc' -%}
+      <th class="sortable{% if active %} sort-active{% endif %}">
+        <a href="?{{ filters.filter_qs }}{% if filters.filter_qs %}&{% endif %}sort={{ col }}&order={{ next_order }}">
+          {{ label }}
+          {%- if active %}
+            <span class="sort-arrow">{{ '▲' if filters.order == 'asc' else '▼' }}</span>
+          {%- else %}
+            <span class="sort-arrow muted">⇅</span>
+          {%- endif %}
+        </a>
+      </th>
+    {% endmacro %}
+
+    {% if kills %}
+    <div class="table-scroll">
+      <table class="kill-table">
+        <thead>
+          <tr>
+            {{ sort_th('Time (UTC)', 'time') }}
+            <th>System</th>
+            {{ sort_th('Sec', 'sec') }}
+            <th>Victim Ship</th>
+            {{ sort_th('Attackers', 'attackers') }}
+            {{ sort_th('ISK Lost', 'total_value') }}
+            {{ sort_th('ISK Dropped', 'dropped_value') }}
+            <th>Gank</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for kill in kills %}
+          <tr>
+            <td>
+              <a href="{{ url_for('kill_detail', killmail_id=kill.killmail_id) }}">
+                {{ kill.killmail_time[:16].replace('T', ' ') }}
+              </a>
+            </td>
+            <td class="system-name">{{ kill.system_name or kill.solar_system_id }}</td>
+            <td>
+              <span class="sec-badge {{ kill.security_status | security_color }}">
+                {{ kill.security_status | security_display }}
+              </span>
+            </td>
+            <td>
+              {% if kill.victim_ship_name %}
+                <a href="/?ship_type_id={{ kill.victim_ship_type_id }}">{{ kill.victim_ship_name }}</a>
+              {% else %}
+                <span class="unknown">Unknown</span>
+              {% endif %}
+            </td>
+            <td class="center">{{ kill.attacker_count }}</td>
+            <td class="isk-cell">{{ kill.total_value | isk }}</td>
+            <td class="isk-cell dropped">{{ kill.dropped_value | isk }}</td>
+            <td class="gank-cell">
+              {% if kill.is_confirmed_gank %}
+                <span class="gank-badge confirmed">GANK</span>
+              {% elif kill.is_gank_candidate %}
+                <span class="gank-badge candidate">?</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    {% set sort_qs = 'sort=' ~ filters.sort ~ '&order=' ~ filters.order %}
+    {% set pqs = (filters.filter_qs ~ ('&' if filters.filter_qs else '') ~ sort_qs) %}
+    <nav class="pagination" aria-label="Pagination">
+      {% if filters.page > 1 %}
+        <a href="?{{ pqs }}&page={{ filters.page - 1 }}" role="button" class="outline">&larr; Prev</a>
+      {% else %}
+        <button disabled class="outline">&larr; Prev</button>
+      {% endif %}
+      <span class="page-info">Page {{ filters.page }} of {{ total_pages }}</span>
+      {% if filters.page < total_pages %}
+        <a href="?{{ pqs }}&page={{ filters.page + 1 }}" role="button" class="outline">Next &rarr;</a>
+      {% else %}
+        <button disabled class="outline">Next &rarr;</button>
+      {% endif %}
+    </nav>
+    {% endif %}
+
+    {% else %}
+      <article class="empty-state">
+        <p>No kills in the database yet. <a href="{{ url_for('sync') }}">Sync some kills</a> to get started.</p>
+      </article>
+    {% endif %}
+  </section>
+</div>
+
+<script>
+function setupAutocomplete(inputId, hiddenId) {
+  const input = document.getElementById(inputId);
+  const hidden = document.getElementById(hiddenId);
+  if (!input || !hidden) return;
+
+  let timeout;
+  let datalist = document.createElement('datalist');
+  datalist.id = inputId + '-list';
+  document.body.appendChild(datalist);
+  input.setAttribute('list', datalist.id);
+
+  // Store id→name map for reverse lookup
+  const idMap = {};
+
+  input.addEventListener('input', () => {
+    clearTimeout(timeout);
+    // If user clears the field, also clear the hidden id
+    if (!input.value.trim()) {
+      hidden.value = '';
+      datalist.innerHTML = '';
+      return;
+    }
+    timeout = setTimeout(async () => {
+      if (input.value.length < 2) return;
+      try {
+        const res = await fetch(`/api/type-search?q=${encodeURIComponent(input.value)}`);
+        const results = await res.json();
+        datalist.innerHTML = '';
+        results.forEach(r => {
+          idMap[r.name] = r.type_id;
+          const opt = document.createElement('option');
+          opt.value = r.name;
+          datalist.appendChild(opt);
+        });
+      } catch (e) { /* ignore */ }
+    }, 300);
+  });
+
+  input.addEventListener('change', () => {
+    const id = idMap[input.value];
+    if (id !== undefined) {
+      hidden.value = id;
+    } else if (!input.value.trim()) {
+      hidden.value = '';
+    }
+  });
+}
+
+setupAutocomplete('item-name-input', 'item_id');
+setupAutocomplete('ship-name-input', 'ship_type_id');
+</script>
+{% endblock %}

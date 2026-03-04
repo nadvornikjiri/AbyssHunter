@@ -1,0 +1,226 @@
+/* Eve Killmail Browser — custom styles on top of Pico.css Slate theme */
+
+:root {
+  --eve-gold: #c8a951;
+  --sec-10: #2effb7;
+  --sec-9:  #48f0c0;
+  --sec-8:  #00ef47;
+  --sec-7:  #00f000;
+  --sec-6:  #8dff0a;
+  --sec-5:  #e6e600;
+  --sec-4:  #d2691e;
+  --sec-3:  #f06000;
+  --sec-2:  #f04800;
+  --sec-1:  #d73000;
+  --sec-0:  #f00000;
+  --sec-unknown: #888;
+}
+
+/* Nav */
+.app-title { color: var(--eve-gold) !important; font-size: 1.1rem; }
+
+/* Flash messages */
+.flash { border-left: 4px solid var(--pico-primary); margin-bottom: 1rem; }
+.flash-success { border-color: #2effb7; }
+.flash-error   { border-color: #f04800; }
+
+/* Kill list layout */
+.kill-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .kill-layout { grid-template-columns: 1fr; }
+}
+
+.filters-panel fieldset { padding: 0.8rem; }
+.filters-panel legend   { font-weight: bold; font-size: 0.9rem; }
+.filters-panel label    { margin-bottom: 0.5rem; font-size: 0.85rem; }
+.filters-panel input[type="text"],
+.filters-panel input[type="number"] { padding: 0.3rem 0.5rem; font-size: 0.85rem; }
+
+.sec-range { display: flex; gap: 0.5rem; }
+.sec-range label { flex: 1; }
+
+.gank-check { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+.filter-buttons { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.filter-buttons button,
+.filter-buttons a { flex: 1; padding: 0.4rem; font-size: 0.85rem; }
+
+/* Kill table */
+.table-scroll { overflow-x: auto; }
+
+.kill-table { font-size: 0.85rem; }
+.kill-table th { white-space: nowrap; }
+.kill-table td { white-space: nowrap; }
+
+/* Sortable column headers */
+.kill-table th.sortable { padding: 0; }
+.kill-table th.sortable a {
+  display: block;
+  padding: var(--pico-table-cell-padding-block) var(--pico-table-cell-padding-inline);
+  text-decoration: none;
+  color: inherit;
+  white-space: nowrap;
+  user-select: none;
+}
+.kill-table th.sortable a:hover { color: var(--pico-primary); }
+.kill-table th.sort-active a   { color: var(--pico-primary); }
+.sort-arrow      { margin-left: 0.25em; font-size: 0.75em; opacity: 0.9; }
+.sort-arrow.muted { opacity: 0.25; }
+
+.result-count { margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--pico-muted-color); }
+
+/* Security badge */
+.sec-badge {
+  font-weight: bold;
+  font-size: 0.85rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.05);
+}
+.sec-10 { color: var(--sec-10); }
+.sec-9  { color: var(--sec-9); }
+.sec-8  { color: var(--sec-8); }
+.sec-7  { color: var(--sec-7); }
+.sec-6  { color: var(--sec-6); }
+.sec-5  { color: var(--sec-5); }
+.sec-4  { color: var(--sec-4); }
+.sec-3  { color: var(--sec-3); }
+.sec-2  { color: var(--sec-2); }
+.sec-1  { color: var(--sec-1); }
+.sec-0  { color: var(--sec-0); }
+.sec-unknown { color: var(--sec-unknown); }
+
+/* Gank badges */
+.gank-badge {
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 2px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gank-badge.confirmed { background: #c0392b; color: #fff; }
+.gank-badge.candidate { background: #7f6000; color: #ffd; }
+
+/* ISK cells */
+.isk-cell { text-align: right; font-variant-numeric: tabular-nums; }
+.dropped  { color: #2effb7; }
+.center   { text-align: center; }
+
+/* CONCORD row highlight */
+.concord-row { background: rgba(192, 57, 43, 0.12); }
+
+/* Kill detail */
+.kill-detail header { margin-bottom: 1.5rem; }
+.detail-header-row  { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; }
+.detail-subtitle    { color: var(--pico-muted-color); margin-top: 0.25rem; }
+
+.detail-values { display: flex; gap: 1.5rem; }
+.value-item    { display: flex; flex-direction: column; text-align: right; }
+.value-label   { font-size: 0.75rem; color: var(--pico-muted-color); }
+.value-num     { font-size: 1.4rem; font-weight: bold; }
+
+.gank-notice {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+.gank-notice.confirmed { background: rgba(192,57,43,0.2); border-left: 3px solid #c0392b; }
+.gank-notice.candidate { background: rgba(127,96,0,0.2);  border-left: 3px solid #c8a951; }
+
+.info-table { width: auto; }
+.info-table th { width: 140px; color: var(--pico-muted-color); font-weight: normal; }
+
+.qty-dropped   { color: #2effb7; font-weight: bold; }
+.qty-destroyed { color: #f04800; }
+
+.items-total-row { border-top: 2px solid var(--pico-table-border-color); }
+
+/* Sync progress page */
+#cancel-row      { margin-top: 1rem; }
+.progress-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--pico-muted-color);
+  margin-top: 0.15rem;
+}
+.rate-badge {
+  font-variant-numeric: tabular-nums;
+  font-weight: bold;
+  color: var(--eve-gold);
+}
+
+#dl-file-bars { margin-top: 0.4rem; }
+.file-progress-row {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+.file-date { font-size: 0.78rem; color: var(--pico-muted-color); white-space: nowrap; }
+.file-bar  { height: 6px; margin: 0; }
+.file-size { font-size: 0.78rem; color: var(--pico-muted-color); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.unknown { color: var(--pico-muted-color); font-style: italic; }
+
+/* System name: don't wrap */
+.system-name { white-space: nowrap; }
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  justify-content: center;
+}
+.page-info { color: var(--pico-muted-color); font-size: 0.9rem; }
+
+/* Sync page */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.stat-card {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-card-border-color);
+  border-radius: 6px;
+  padding: 1rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.stat-value { font-size: 1.6rem; font-weight: bold; }
+.stat-value.confirmed { color: #2effb7; }
+.stat-label { font-size: 0.8rem; color: var(--pico-muted-color); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.sync-form { max-width: 400px; }
+.sync-warning { color: var(--pico-muted-color); margin-top: 0.5rem; }
+
+.admin-actions h3 { margin-bottom: 0.75rem; }
+.admin-buttons {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.admin-form { margin: 0; }
+.admin-form button { white-space: nowrap; }
+.admin-form p { margin: 0.3rem 0 0; color: var(--pico-muted-color); }
+
+.empty-state { text-align: center; padding: 2rem; color: var(--pico-muted-color); }
+
+/* List header */
+.list-header { display: flex; justify-content: space-between; align-items: center; }

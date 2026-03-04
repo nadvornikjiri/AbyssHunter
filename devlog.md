@@ -1,0 +1,39 @@
+# Devlog
+
+## 2026-03-04 — Day-based ingestion progress + gank detection progress bar
+
+### Changes
+- **fetcher.py**: `ingest_total` is now set to `len(dates)` (days) before the download loop instead of growing per-day. `ingest_done` tracks days processed (incremented by 1 after each day's DB commit, including empty days). Added `ingest_records_done` field for the actual kill count (used for the rate badge). Rate calculation updated to use `ingest_records_done` for records/s.
+- **gank.py**: `run_phase2_gank_detection` accepts an optional `progress` dict. Emits `gank_phase="running"` at entry and `gank_phase="done"`, `gank_confirmed`, `gank_checked` on completion.
+- **app.py**: Added `ingest_records_done`, `gank_phase`, `gank_confirmed`, `gank_checked` to the initial progress dict. Passes `progress=progress` to `run_phase2_gank_detection`.
+- **sync_progress.html**: Ingestion bar label changed to `N / M days · X records`. Added third "Gank detection" progress bar — indeterminate while pending/running, full when done, label shows confirmed count and CONCORD kills checked.
+
+---
+
+## 2026-03-04 — Bulk system prefetch from ESI
+
+### Changes
+- **fetcher.py**: Added `_prefetch_all_systems(conn, progress)`. Calls `GET /universe/systems/` (returns all ~8 285 system IDs in one request), then parallel-fetches `/universe/systems/{id}/` for any not yet in `system_cache` using 40 concurrent workers. One-time cost ~30–60 s on first run; instant thereafter.
+- **fetcher.py**: `sync_kills_everef` now calls `_prefetch_all_systems` before any killmail downloads instead of loading from the DB and lazily fetching missing systems per-day. The entire per-day `missing_sys` / `_fetch_sys` block is removed.
+
+---
+
+## 2026-03-04 — Per-file download progress bars
+
+### Changes
+- **fetcher.py**: `_download_everef_day` now streams in 256 KB chunks and updates `file_progress[date_str]` (`bytes_done`, `bytes_total`, `done`) in real-time from each download thread. Accepts optional `file_progress` dict.
+- **fetcher.py**: `sync_kills_everef` creates a `dl_file_progress` shared dict, adds it to the progress object, and passes it to all download threads via `functools.partial`.
+- **app.py**: `dl_file_progress: {}` added to initial progress dict.
+- **sync_progress.html**: Per-file bars rendered below the overall download bar. Each bar appears when a file starts downloading and is removed 1 second after its `done` flag is set. Shows date, a small progress bar (indeterminate if Content-Length unknown), and MB downloaded.
+- **style.css**: `.file-progress-row` grid layout, `.file-bar` (6 px tall), `.file-date`, `.file-size`.
+
+---
+
+## 2026-03-04 — Parallel downloads + dual progress bars
+
+### Changes
+- **fetcher.py**: Removed byte-range chunked download (`_download_everef_day` with Range headers). Downloads are now one full connection per file, multiple files in parallel via `ThreadPoolExecutor` (up to `EVEREF_DL_CONNECTIONS` workers). `_download_everef_day` now returns `(killmails, bytes_downloaded)`.
+- **fetcher.py**: `sync_kills_everef` progress dict restructured — dropped `day_current/total`, `day_date`, `kills_this_day/total`, `download_phase/date`; added `dl_files_done`, `dl_files_total`, `dl_bytes_done`, `dl_rate_mbps`, `ingest_done`, `ingest_total`, `ingest_rate_rps`. Rates computed from per-update deltas.
+- **app.py**: Initial progress dict updated to match new fields.
+- **sync_progress.html**: Two progress bars — "Download progress (overall)" (files + MB/s) and "Ingestion progress (overall)" (records; total grows dynamically, records/s). Rate displayed as gold badge.
+- **style.css**: Added `.progress-stats` and `.rate-badge` styles.

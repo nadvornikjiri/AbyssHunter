@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Sync — Eve Killmail Browser{% endblock %}
+
+{% block content %}
+<article class="sync-page">
+  <header>
+    <h2>Sync Killmails</h2>
+    <p>Pull recent kills from zKillboard and enrich them via ESI.</p>
+  </header>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <span class="stat-value">{{ total_kills }}</span>
+      <span class="stat-label">Total Kills</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ gank_candidates }}</span>
+      <span class="stat-label">Gank Candidates</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value confirmed">{{ confirmed_ganks }}</span>
+      <span class="stat-label">Confirmed Ganks</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ last_kill_time[:16].replace('T', ' ') ~ ' UTC' if last_kill_time else 'None' }}</span>
+      <span class="stat-label">Most Recent Kill</span>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('sync') }}" class="sync-form">
+    <label>
+      Days back to download (1–30)
+      <input type="number" name="days_back" value="1" min="1" max="30" style="width:120px">
+    </label>
+    <p class="sync-warning">
+      <small>
+        Downloads daily bulk archives from <strong>EVE Ref</strong> (full kill data,
+        ~18k kills/day, ~3 MB/day). ISK values computed locally from
+        <strong>ESI market prices</strong> (one bulk call). Already-known kills are
+        skipped automatically. Data available back to 2007.
+      </small>
+    </p>
+    <button type="submit">&#x21BB; Bulk Download</button>
+  </form>
+
+  <hr>
+
+  <div class="admin-actions">
+    <h3>Admin</h3>
+    <div class="admin-buttons">
+
+      <form method="POST" action="{{ url_for('admin_refresh_prices') }}" class="admin-form">
+        <button type="submit" class="outline">&#x21BA; Refresh Market Prices</button>
+        <p><small>Force-fetches the latest adjusted prices from ESI right now (normally cached 1 h).</small></p>
+      </form>
+
+      <form method="POST" action="{{ url_for('admin_clear_db') }}" class="admin-form"
+            onsubmit="return confirm('Delete ALL killmails from the database? This cannot be undone.');">
+        <button type="submit" class="outline secondary">&#x1F5D1; Clear Database</button>
+        <p><small>Removes all killmails, victims, attackers and items. Type and system caches are kept.</small></p>
+      </form>
+
+    </div>
+  </div>
+</article>
+{% endblock %}

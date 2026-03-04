@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Kill #{{ kill.killmail_id }} — Eve Killmail Browser{% endblock %}
+
+{% block content %}
+<article class="kill-detail">
+  <header>
+    <div class="detail-header-row">
+      <div>
+        <h2>
+          {{ victim.ship_name or 'Unknown Ship' }} destroyed
+        </h2>
+        <p class="detail-subtitle">
+          in
+          <strong>{{ kill.system_name or kill.solar_system_id }}</strong>
+          <span class="sec-badge {{ kill.security_status | security_color }}">
+            {{ kill.security_status | security_display }}
+          </span>
+          &middot;
+          {{ kill.killmail_time[:16].replace('T', ' ') }} UTC
+        </p>
+      </div>
+      <div class="detail-values">
+        <div class="value-item">
+          <span class="value-label">Total Lost</span>
+          <span class="value-num">{{ kill.total_value | isk }}</span>
+        </div>
+        <div class="value-item">
+          <span class="value-label">Dropped</span>
+          <span class="value-num dropped">{{ kill.dropped_value | isk }}</span>
+        </div>
+      </div>
+    </div>
+
+    {% if kill.is_confirmed_gank %}
+      <p class="gank-notice confirmed">
+        &#x26A0; Confirmed Gank — CONCORD response kill:
+        <a href="{{ url_for('kill_detail', killmail_id=kill.concord_killmail_id) }}">#{{ kill.concord_killmail_id }}</a>
+      </p>
+    {% elif kill.is_gank_candidate %}
+      <p class="gank-notice candidate">
+        &#x26A0; Possible gank (highsec, criminal attacker detected — CONCORD response not yet confirmed in DB)
+      </p>
+    {% endif %}
+  </header>
+
+  <!-- Victim -->
+  <section>
+    <h3>Victim</h3>
+    <table class="info-table">
+      <tbody>
+        <tr>
+          <th>Ship</th>
+          <td>
+            {% if victim.ship_name %}
+              <a href="{{ url_for('index') }}?ship_type_id={{ victim.ship_type_id }}">{{ victim.ship_name }}</a>
+            {% else %}
+              Type ID {{ victim.ship_type_id }}
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th>Character ID</th>
+          <td>{{ victim.character_id or 'NPC / Unknown' }}</td>
+        </tr>
+        <tr>
+          <th>Corporation ID</th>
+          <td>{{ victim.corporation_id or '—' }}</td>
+        </tr>
+        {% if victim.alliance_id %}
+        <tr>
+          <th>Alliance ID</th>
+          <td>{{ victim.alliance_id }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+          <th>Damage Taken</th>
+          <td>{{ victim.damage_taken }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Items -->
+  {% if items %}
+  {% set total_isk_dropped   = items | sum(attribute='isk_dropped') %}
+  {% set total_isk_destroyed = items | sum(attribute='isk_destroyed') %}
+  <section>
+    <h3>Items ({{ items|length }})</h3>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Slot Flag</th>
+            <th>Qty Dropped</th>
+            <th>Qty Destroyed</th>
+            <th class="isk-cell">ISK Dropped</th>
+            <th class="isk-cell">ISK Lost</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items | sort(attribute='isk_total', reverse=true) %}
+          <tr>
+            <td>
+              {% if item.item_name %}
+                <a href="{{ url_for('index') }}?item_id={{ item.item_type_id }}">{{ item.item_name }}</a>
+              {% else %}
+                Type {{ item.item_type_id }}
+              {% endif %}
+            </td>
+            <td>{{ item.flag }}</td>
+            <td class="{% if item.quantity_dropped > 0 %}qty-dropped{% endif %}">
+              {{ item.quantity_dropped or '—' }}
+            </td>
+            <td class="{% if item.quantity_destroyed > 0 %}qty-destroyed{% endif %}">
+              {{ item.quantity_destroyed or '—' }}
+            </td>
+            <td class="isk-cell{% if item.isk_dropped > 0 %} dropped{% endif %}">
+              {{ item.isk_dropped | isk if item.isk_dropped > 0 else '—' }}
+            </td>
+            <td class="isk-cell">
+              {{ item.isk_destroyed | isk if item.isk_destroyed > 0 else '—' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="items-total-row">
+            <td colspan="4"><strong>Total</strong></td>
+            <td class="isk-cell dropped"><strong>{{ total_isk_dropped | isk }}</strong></td>
+            <td class="isk-cell"><strong>{{ total_isk_destroyed | isk }}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Attackers -->
+  <section>
+    <h3>Attackers ({{ attackers|length }})</h3>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Character</th>
+            <th>Ship</th>
+            <th>Corporation</th>
+            <th>Damage</th>
+            <th>Final Blow</th>
+            <th>Sec Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for atk in attackers %}
+          <tr class="{% if atk.is_concord %}concord-row{% endif %}">
+            <td>{{ atk.character_id or 'NPC' }}</td>
+            <td>
+              {% if atk.ship_type_id %}
+                {% if atk.ship_name %}
+                  <a href="{{ url_for('index') }}?ship_type_id={{ atk.ship_type_id }}">{{ atk.ship_name }}</a>
+                {% else %}
+                  Type {{ atk.ship_type_id }}
+                {% endif %}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>{{ atk.corporation_id or '—' }}</td>
+            <td>{{ atk.damage_done }}</td>
+            <td class="center">{% if atk.final_blow %}&#x2714;{% endif %}</td>
+            <td>
+              {% if atk.security_status is not none %}
+                <span class="sec-badge {{ atk.security_status | security_color }}">
+                  {{ '%.1f' | format(atk.security_status) }}
+                </span>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if atk.is_concord %}
+                <span class="gank-badge confirmed">CONCORD</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <small>
+      Kill ID: {{ kill.killmail_id }} &middot;
+      <a href="https://zkillboard.com/kill/{{ kill.killmail_id }}/" target="_blank" rel="noopener">
+        View on zKillboard &#x2197;
+      </a>
+    </small>
+  </footer>
+</article>
+{% endblock %}

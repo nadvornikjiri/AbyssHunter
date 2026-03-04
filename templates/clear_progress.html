@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Clearing database… — Eve Killmail Browser{% endblock %}
+
+{% block content %}
+<article>
+  <header>
+    <h2>Clearing database…</h2>
+  </header>
+
+  <div id="progress-section">
+    <p id="status-msg">Please wait.</p>
+    <progress id="bar"></progress>
+  </div>
+
+  <div id="error-section" style="display:none">
+    <mark id="error-msg"></mark>
+    <br><br>
+    <a href="{{ url_for('sync') }}" role="button" class="secondary">Back to sync</a>
+  </div>
+</article>
+
+<script>
+(function () {
+  const statusUrl = {{ url_for('api_clear_status') | tojson }};
+  const doneUrl   = {{ url_for('clear_done') | tojson }};
+
+  async function poll() {
+    let data;
+    try {
+      const resp = await fetch(statusUrl);
+      data = await resp.json();
+    } catch (e) {
+      setTimeout(poll, 1000);
+      return;
+    }
+
+    if (data.done) {
+      if (data.error) {
+        document.getElementById('progress-section').style.display = 'none';
+        document.getElementById('error-msg').textContent = data.error;
+        document.getElementById('error-section').style.display = '';
+      } else {
+        window.location.href = doneUrl;
+      }
+    } else {
+      setTimeout(poll, 500);
+    }
+  }
+
+  poll();
+})();
+</script>
+{% endblock %}

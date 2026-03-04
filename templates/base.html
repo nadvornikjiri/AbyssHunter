@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Eve Killmail Browser{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.slate.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<header class="container-fluid">
+  <nav>
+    <ul>
+      <li><strong><a href="/" class="app-title">&#x2622; Eve Killmail Browser</a></strong></li>
+    </ul>
+    <ul>
+      <li><a href="/" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Kills</a></li>
+      <li><a href="{{ url_for('sync') }}" {% if request.endpoint == 'sync' %}aria-current="page"{% endif %}>Sync</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main class="container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <article class="flash flash-{{ category }}">{{ message }}</article>
+    {% endfor %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="container-fluid">
+  <small>Data sourced from <a href="https://zkillboard.com" target="_blank" rel="noopener">zKillboard</a>
+  and <a href="https://esi.evetech.net" target="_blank" rel="noopener">ESI</a>.
+  Not affiliated with CCP Games.</small>
+</footer>
+
+</body>
+</html>
