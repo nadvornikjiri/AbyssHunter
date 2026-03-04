@@ -79,6 +79,12 @@ CREATE TABLE IF NOT EXISTS system_cache (
     cached_at        TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS character_cache (
+    character_id INTEGER PRIMARY KEY,
+    name         TEXT    NOT NULL,
+    cached_at    TEXT    NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_killmails_time     ON killmails(killmail_time DESC);
 CREATE INDEX IF NOT EXISTS idx_killmails_sec      ON killmails(security_status);
 CREATE INDEX IF NOT EXISTS idx_killmails_gank     ON killmails(is_confirmed_gank, is_gank_candidate);
@@ -89,6 +95,7 @@ CREATE INDEX IF NOT EXISTS idx_attackers_kill     ON attackers(killmail_id);
 CREATE INDEX IF NOT EXISTS idx_attackers_concord  ON attackers(is_concord);
 CREATE INDEX IF NOT EXISTS idx_items_type         ON items(item_type_id);
 CREATE INDEX IF NOT EXISTS idx_items_kill         ON items(killmail_id);
+CREATE INDEX IF NOT EXISTS idx_character_name     ON character_cache(name);
 """
 
 
@@ -345,6 +352,34 @@ def upsert_system(conn: sqlite3.Connection, system_data: dict) -> None:
     )
 
 
+def get_cached_character(conn: sqlite3.Connection, character_id: int) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM character_cache WHERE character_id = ?", (character_id,)
+    ).fetchone()
+
+
+def get_uncached_character_ids(conn: sqlite3.Connection, character_ids: list) -> list:
+    if not character_ids:
+        return []
+    placeholders = ",".join("?" * len(character_ids))
+    cached = conn.execute(
+        f"SELECT character_id FROM character_cache WHERE character_id IN ({placeholders})", character_ids
+    ).fetchall()
+    cached_set = {row["character_id"] for row in cached}
+    return [c for c in character_ids if c not in cached_set]
+
+
+def bulk_upsert_characters(conn: sqlite3.Connection, characters: list) -> None:
+    now = _now_utc()
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO character_cache (character_id, name, cached_at)
+        VALUES (?, ?, ?)
+        """,
+        [(c["character_id"], c["name"], now) for c in characters],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Kill list query (with filters)
 # ---------------------------------------------------------------------------
@@ -365,6 +400,7 @@ def get_killmails_page(
     page_size: int,
     item_id: Optional[int] = None,
     ship_type_id: Optional[int] = None,
+    character_id: Optional[int] = None,
     system_id: Optional[int] = None,
     min_sec: Optional[float] = None,
     max_sec: Optional[float] = None,
@@ -392,6 +428,16 @@ def get_killmails_page(
             )"""
         )
         params.extend([ship_type_id, ship_type_id])
+
+    if character_id is not None:
+        where_clauses.append(
+            """(
+                EXISTS (SELECT 1 FROM victims v WHERE v.killmail_id = k.killmail_id AND v.character_id = ?)
+                OR
+                EXISTS (SELECT 1 FROM attackers a WHERE a.killmail_id = k.killmail_id AND a.character_id = ?)
+            )"""
+        )
+        params.extend([character_id, character_id])
 
     if system_id is not None:
         where_clauses.append("k.solar_system_id = ?")
@@ -768,5 +814,12 @@ def search_type_cache(conn: sqlite3.Connection, query: str, limit: int = 20) -> 
 def search_system_cache(conn: sqlite3.Connection, query: str, limit: int = 20) -> list:
     return conn.execute(
         "SELECT system_id, name FROM system_cache WHERE name LIKE ? ORDER BY name LIMIT ?",
+        (f"%{query}%", limit),
+    ).fetchall()
+
+
+def search_character_cache(conn: sqlite3.Connection, query: str, limit: int = 20) -> list:
+    return conn.execute(
+        "SELECT character_id, name FROM character_cache WHERE name LIKE ? ORDER BY name LIMIT ?",
         (f"%{query}%", limit),
     ).fetchall()

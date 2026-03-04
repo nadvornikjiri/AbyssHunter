@@ -278,6 +278,22 @@ def resolve_and_cache_types(conn, type_ids: list) -> None:
         db.bulk_upsert_types(conn, types_to_insert)
 
 
+def resolve_and_cache_characters(conn, character_ids: list) -> None:
+    """Resolve uncached character IDs via ESI /universe/names/ and store in character_cache."""
+    uncached = db.get_uncached_character_ids(conn, character_ids)
+    if not uncached:
+        return
+
+    names = fetch_esi_names(uncached)
+    characters_to_insert = [
+        {"character_id": character_id, "name": name}
+        for character_id, name in names.items()
+    ]
+
+    if characters_to_insert:
+        db.bulk_upsert_characters(conn, characters_to_insert)
+
+
 # ---------------------------------------------------------------------------
 # ESI — async batch fetching
 # ---------------------------------------------------------------------------
@@ -331,8 +347,8 @@ def _ingest_esi_data(conn, zkill_entry: dict, km_data: dict) -> tuple:
     """
     Ingest a pre-fetched ESI killmail into the database.
 
-    Returns (newly_inserted: bool, type_ids: set) so callers can defer
-    type resolution to a single bulk call after a whole batch.
+    Returns (newly_inserted: bool, type_ids: set, character_ids: set) so callers can defer
+    type/character resolution to a single bulk call after a whole batch.
     """
     killmail_id = zkill_entry["killmail_id"]
     zkb = zkill_entry.get("zkb", {})
@@ -371,24 +387,29 @@ def _ingest_esi_data(conn, zkill_entry: dict, km_data: dict) -> tuple:
     )
 
     if not newly_inserted:
-        return False, set()
+        return False, set(), set()
 
     db.insert_victim(conn, killmail_id, victim)
     db.insert_attackers(conn, killmail_id, attackers)
     db.insert_items(conn, killmail_id, items)
 
-    # Collect type IDs for deferred bulk resolution
+    # Collect IDs for deferred bulk resolution
     type_ids: set = set()
+    character_ids: set = set()
     if victim.get("ship_type_id"):
         type_ids.add(victim["ship_type_id"])
+    if victim.get("character_id"):
+        character_ids.add(victim["character_id"])
     for a in attackers:
         if a.get("ship_type_id"):
             type_ids.add(a["ship_type_id"])
+        if a.get("character_id"):
+            character_ids.add(a["character_id"])
     for i in items:
         if i.get("item_type_id"):
             type_ids.add(i["item_type_id"])
 
-    return True, type_ids
+    return True, type_ids, character_ids
 
 
 # ---------------------------------------------------------------------------
@@ -418,9 +439,11 @@ def ingest_killmail(conn, zkill_entry: dict) -> bool:
     if km_data is None:
         return False
 
-    ingested, type_ids = _ingest_esi_data(conn, zkill_entry, km_data)
+    ingested, type_ids, character_ids = _ingest_esi_data(conn, zkill_entry, km_data)
     if ingested and type_ids:
         resolve_and_cache_types(conn, list(type_ids))
+    if ingested and character_ids:
+        resolve_and_cache_characters(conn, list(character_ids))
     return ingested
 
 
@@ -492,6 +515,7 @@ def sync_kills_batch(conn, days_back: int = 1) -> dict:
 
     # 3. Concurrent ESI fetch + ingest in INGEST_BATCH_SIZE chunks
     all_type_ids: set = set()
+    all_character_ids: set = set()
     batch_size = config.INGEST_BATCH_SIZE
 
     for batch_start in range(0, len(new_entries), batch_size):
@@ -509,10 +533,11 @@ def sync_kills_batch(conn, days_back: int = 1) -> dict:
                 summary["errors"] += 1
                 continue
             try:
-                ingested, type_ids = _ingest_esi_data(conn, zkill_entry, esi_data)
+                ingested, type_ids, character_ids = _ingest_esi_data(conn, zkill_entry, esi_data)
                 if ingested:
                     summary["ingested"] += 1
                     all_type_ids |= type_ids
+                    all_character_ids |= character_ids
                 else:
                     summary["skipped"] += 1
             except Exception as e:
@@ -532,6 +557,9 @@ def sync_kills_batch(conn, days_back: int = 1) -> dict:
     if all_type_ids:
         logger.info("Resolving %d distinct type IDs via ESI /universe/names/...", len(all_type_ids))
         resolve_and_cache_types(conn, list(all_type_ids))
+    if all_character_ids:
+        logger.info("Resolving %d distinct character IDs via ESI /universe/names/...", len(all_character_ids))
+        resolve_and_cache_characters(conn, list(all_character_ids))
         conn.commit()
 
     logger.info(
@@ -877,6 +905,10 @@ def _prepare_kill_rows(km: dict, prices: dict, system_sec_map: dict) -> dict:
         | {a["ship_type_id"] for a in attackers if a.get("ship_type_id")}
         | {i["item_type_id"]  for i in items    if i.get("item_type_id")}
     )
+    character_ids = (
+        ({victim["character_id"]} if victim.get("character_id") else set())
+        | {a["character_id"] for a in attackers if a.get("character_id")}
+    )
     return {
         "killmail_id":    killmail_id,
         "km_row":         km_row,
@@ -884,6 +916,7 @@ def _prepare_kill_rows(km: dict, prices: dict, system_sec_map: dict) -> dict:
         "attacker_rows":  attacker_rows,
         "item_rows":      item_rows,
         "type_ids":       type_ids,
+        "character_ids":  character_ids,
     }
 
 
@@ -945,6 +978,7 @@ def sync_kills_everef(
     }
 
     all_type_ids: set = set()
+    all_character_ids: set = set()
 
     # -----------------------------------------------------------------------
     # Stage 1: download all archives in parallel (EVEREF_DL_CONNECTIONS workers).
@@ -1072,6 +1106,7 @@ def sync_kills_everef(
 
         for p in prepared:
             all_type_ids |= p["type_ids"]
+            all_character_ids |= p["character_ids"]
             known_ids.add(p["killmail_id"])
 
         summary["ingested"] += len(prepared)
@@ -1111,6 +1146,15 @@ def sync_kills_everef(
         )
         logger.info("Resolving %d type IDs via ESI /universe/names/...", len(all_type_ids))
         resolve_and_cache_types(conn, list(all_type_ids))
+        conn.commit()
+
+    if ingested_any and all_character_ids:
+        _prog(
+            phase="resolving_characters",
+            message=f"Resolving {len(all_character_ids):,} character names…",
+        )
+        logger.info("Resolving %d character IDs via ESI /universe/names/...", len(all_character_ids))
+        resolve_and_cache_characters(conn, list(all_character_ids))
         conn.commit()
 
     logger.info(
