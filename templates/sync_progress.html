@@ -26,6 +26,7 @@
       <span id="ingest-label"></span>
       <span id="ingest-rate" class="rate-badge"></span>
     </div>
+    <div id="ingest-day-bars"></div>
 
     <br>
 
@@ -66,8 +67,9 @@
   const dlBar       = document.getElementById('dl-bar');
   const dlLabel     = document.getElementById('dl-label');
   const dlRate      = document.getElementById('dl-rate');
-  const dlFileBars  = document.getElementById('dl-file-bars');
-  const ingestBar   = document.getElementById('ingest-bar');
+  const dlFileBars     = document.getElementById('dl-file-bars');
+  const ingestBar      = document.getElementById('ingest-bar');
+  const ingestDayBars  = document.getElementById('ingest-day-bars');
   const ingestLabel = document.getElementById('ingest-label');
   const ingestRate  = document.getElementById('ingest-rate');
   const gankBar     = document.getElementById('gank-bar');
@@ -134,6 +136,57 @@
     }
   }
 
+  // Per-day ingest bar state: dateStr -> { el, doneSeenAt (ms) | null }
+  const _ingestDayBars = {};
+  const _removedIngestDays = new Set();
+
+  function updateIngestDayBars(dp) {
+    if (!dp) return;
+    const now = Date.now();
+
+    for (const [dateStr, info] of Object.entries(dp)) {
+      if (_removedIngestDays.has(dateStr)) continue;
+
+      if (!_ingestDayBars[dateStr]) {
+        const row = document.createElement('div');
+        row.className = 'file-progress-row';
+        row.innerHTML =
+          `<span class="file-date">${dateStr}</span>` +
+          `<progress class="file-bar"></progress>` +
+          `<span class="file-size"></span>`;
+        ingestDayBars.appendChild(row);
+        _ingestDayBars[dateStr] = { el: row, doneSeenAt: null };
+      }
+
+      const entry = _ingestDayBars[dateStr];
+      const bar  = entry.el.querySelector('.file-bar');
+      const size = entry.el.querySelector('.file-size');
+
+      if (info.kills_total > 0) {
+        bar.max   = info.kills_total;
+        bar.value = info.kills_done;
+        size.textContent = `${fmt(info.kills_done)} / ${fmt(info.kills_total)}`;
+      } else {
+        bar.max   = 1;
+        bar.value = info.done ? 1 : 0;
+        size.textContent = info.done ? 'no new kills' : '…';
+      }
+
+      if (info.done && entry.doneSeenAt === null) {
+        entry.doneSeenAt = now;
+      }
+    }
+
+    // Remove bars that have been done for >= 1 second
+    for (const [dateStr, entry] of Object.entries(_ingestDayBars)) {
+      if (entry.doneSeenAt !== null && now - entry.doneSeenAt >= 1000) {
+        entry.el.remove();
+        delete _ingestDayBars[dateStr];
+        _removedIngestDays.add(dateStr);
+      }
+    }
+  }
+
   async function cancelSync() {
     cancelBtn.disabled = true;
     cancelBtn.textContent = 'Cancelling…';
@@ -152,6 +205,9 @@
 
     // Per-file download bars
     updateFileBars(data.dl_file_progress);
+
+    // Per-day ingest bars
+    updateIngestDayBars(data.ingest_day_progress);
 
     // Overall download bar — derived from per-file progress so it updates
     // in real-time from download threads, not after ingestion steps.

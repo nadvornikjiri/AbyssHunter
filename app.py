@@ -201,6 +201,7 @@ def sync():
             "ingest_total": 0,
             "ingest_records_done": 0,
             "ingest_rate_rps": 0.0,
+            "ingest_day_progress": {},
             # Gank detection progress
             "gank_phase": "idle",
             "gank_total": 0,

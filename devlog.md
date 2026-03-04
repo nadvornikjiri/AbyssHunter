@@ -1,5 +1,14 @@
 # Devlog
 
+## 2026-03-04 — Per-day ingestion progress bars
+
+### Changes
+- **fetcher.py**: Added `ingest_day_progress` shared dict (keyed by `date_str`, values `{kills_done, kills_total, done}`). `_ingest_day` creates an entry when the download completes and updates `kills_done` every `N/100` kills during preparation. Main thread sets `done=True` after `conn.commit()`. Empty days are marked `done=True` immediately by the worker.
+- **app.py**: Added `"ingest_day_progress": {}` to the initial progress dict.
+- **sync_progress.html**: `<div id="ingest-day-bars">` below the ingestion overall bar. `updateIngestDayBars()` mirrors `updateFileBars`: creates a row per day when first seen, shows `kills_done / kills_total` as a determinate bar (or "no new kills" for zero-kill days), removes 1 second after `done`.
+
+---
+
 ## 2026-03-04 — Parallel ingestion (download + prepare overlap)
 
 ### Changes

@@ -895,8 +895,9 @@ def sync_kills_everef(
         len(dates), n_dl_workers, n_ingest_workers,
     )
 
-    # Shared dict updated in real-time by download threads for per-file progress bars
-    dl_file_progress: dict = {}
+    # Shared dicts updated in real-time by worker threads for live progress bars
+    dl_file_progress: dict = {}     # keyed by date_str; bytes_done/bytes_total/done
+    ingest_day_progress: dict = {}  # keyed by date_str; kills_done/kills_total/done
     _prog(
         phase="downloading",
         message=f"Downloading {len(dates)} day archive(s) in parallel…",
@@ -907,6 +908,7 @@ def sync_kills_everef(
         dl_file_progress=dl_file_progress,
         ingest_total=len(dates),
         ingest_done=0,
+        ingest_day_progress=ingest_day_progress,
     )
 
     dl_pool = concurrent.futures.ThreadPoolExecutor(
@@ -921,15 +923,32 @@ def sync_kills_everef(
         Ingest worker: block until the download future resolves, filter out
         already-known kills, and build row tuples from in-memory dicts.
         Read-only access to shared objects — safe to run concurrently.
+        Updates ingest_day_progress[date_str] in real-time.
         Returns (date_str, n_bytes, total_kills, already_known, prepared_rows).
         """
         kills, n_bytes = dl_future.result()
         new_kills = [km for km in kills if km["killmail_id"] not in known_ids]
         already_known = len(kills) - len(new_kills)
+
+        ingest_day_progress[date_str] = {
+            "kills_done": 0,
+            "kills_total": len(new_kills),
+            "done": False,
+        }
+
         if not new_kills:
+            ingest_day_progress[date_str]["done"] = True
             return date_str, n_bytes, len(kills), already_known, []
+
         fn = functools.partial(_prepare_kill_rows, prices=prices, system_sec_map=system_sec_map)
-        prepared = [fn(km) for km in new_kills]
+        step = max(1, len(new_kills) // 100)  # up to 100 progress updates per day
+        prepared = []
+        for i, km in enumerate(new_kills):
+            prepared.append(fn(km))
+            if (i + 1) % step == 0:
+                ingest_day_progress[date_str]["kills_done"] = i + 1
+        ingest_day_progress[date_str]["kills_done"] = len(prepared)
+        # done=True is set by the main thread after the DB commit
         return date_str, n_bytes, len(kills), already_known, prepared
 
     ingest_pool = concurrent.futures.ThreadPoolExecutor(
@@ -982,6 +1001,7 @@ def sync_kills_everef(
         db.bulk_insert_attackers(conn, [r for p in prepared for r in p["attacker_rows"]])
         db.bulk_insert_items    (conn, [r for p in prepared for r in p["item_rows"]])
         conn.commit()
+        ingest_day_progress[date_str]["done"] = True
 
         for p in prepared:
             all_type_ids |= p["type_ids"]
