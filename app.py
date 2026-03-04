@@ -177,7 +177,7 @@ def _parse_filters() -> dict:
                 deduped.append(value)
         return deduped
 
-    _SORT_COLS = {"time", "system", "sec", "total_value", "dropped_value", "attackers"}
+    _SORT_COLS = {"time", "system", "sec", "total_value", "dropped_value", "attackers", "jumps"}
     sort = request.args.get("sort", "time")
     if sort not in _SORT_COLS:
         sort = "time"
@@ -243,23 +243,45 @@ def _parse_filters() -> dict:
 def index():
     filters = _parse_filters()
 
-    rows, total_count = db.get_killmails_page(
-        g.db,
-        page=filters["page"],
-        page_size=config.PAGE_SIZE,
-        item_ids=filters["item_ids"],
-        item_match=filters["item_match"],
-        ship_type_id=filters["ship_type_id"],
-        character_id=filters["character_id"],
-        system_id=filters["system_id"],
-        min_isk_lost=filters["min_isk_lost"],
-        max_isk_lost=filters["max_isk_lost"],
-        min_sec=filters["min_sec"],
-        max_sec=filters["max_sec"],
-        gank_filter=filters["gank_filter"],
-        sort_by=filters["sort"],
-        sort_dir=filters["order"],
-    )
+    base_query_args = {
+        "item_ids": filters["item_ids"],
+        "item_match": filters["item_match"],
+        "ship_type_id": filters["ship_type_id"],
+        "character_id": filters["character_id"],
+        "system_id": filters["system_id"],
+        "min_isk_lost": filters["min_isk_lost"],
+        "max_isk_lost": filters["max_isk_lost"],
+        "min_sec": filters["min_sec"],
+        "max_sec": filters["max_sec"],
+        "gank_filter": filters["gank_filter"],
+    }
+
+    if filters["sort"] == "jumps" and filters["route_source_system_id"]:
+        _, total_count = db.get_killmails_page(
+            g.db,
+            page=1,
+            page_size=1,
+            sort_by="time",
+            sort_dir="desc",
+            **base_query_args,
+        )
+        rows, _ = db.get_killmails_page(
+            g.db,
+            page=1,
+            page_size=max(1, total_count),
+            sort_by="time",
+            sort_dir="desc",
+            **base_query_args,
+        )
+    else:
+        rows, total_count = db.get_killmails_page(
+            g.db,
+            page=filters["page"],
+            page_size=config.PAGE_SIZE,
+            sort_by=filters["sort"],
+            sort_dir=filters["order"],
+            **base_query_args,
+        )
 
     isk_lost_bounds = db.get_isk_lost_bounds(g.db)
     isk_lost_bounds["max_isk_lost"] = min(isk_lost_bounds["max_isk_lost"], config.ISK_LOST_FILTER_MAX)
@@ -305,6 +327,19 @@ def index():
     else:
         for kill in kills:
             kill["jumps_from_source"] = None
+
+    if filters["sort"] == "jumps" and filters["route_source_system_id"]:
+        known_jumps = [k for k in kills if k["jumps_from_source"] is not None]
+        unknown_jumps = [k for k in kills if k["jumps_from_source"] is None]
+        known_jumps = sorted(
+            known_jumps,
+            key=lambda k: (k["jumps_from_source"], k["killmail_time"]),
+            reverse=(filters["order"] == "desc"),
+        )
+        kills = known_jumps + unknown_jumps
+        start = (filters["page"] - 1) * config.PAGE_SIZE
+        end = start + config.PAGE_SIZE
+        kills = kills[start:end]
 
     return render_template(
         "index.html",
