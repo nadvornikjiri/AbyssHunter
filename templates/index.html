@@ -165,7 +165,11 @@
         {% if total_count == 0 %}
           No kills found.
         {% else %}
-          Showing {{ kills|length }} of <strong>{{ total_count }}</strong> kills
+          {% if filters.group_by %}
+            Showing <strong>{{ total_count }}</strong> kills grouped by <strong>{{ 'System' if filters.group_by == 'system' else 'Victim Ship' }}</strong>
+          {% else %}
+            Showing {{ kills|length }} of <strong>{{ total_count }}</strong> kills
+          {% endif %}
         {% endif %}
       </p>
     </div>
@@ -202,14 +206,20 @@
                     <span class="sort-arrow muted">⇅</span>
                   {% endif %}
                 </a>
-                <button type="button" class="group-toggle" data-group-target="system">Group</button>
+                {% set next_group = '' if filters.group_by == 'system' else 'system' %}
+                <a role="button" class="group-toggle{% if filters.group_by == 'system' %} active{% endif %}" href="?{{ filters.filter_qs }}{% if filters.filter_qs %}&{% endif %}sort=system&order={{ filters.order }}{% if next_group %}&group_by={{ next_group }}{% endif %}">
+                  {{ 'Ungroup' if filters.group_by == 'system' else 'Group' }}
+                </a>
               </div>
             </th>
             {{ sort_th('Sec', 'sec') }}
             <th data-group-col="victim_ship">
               <div class="th-controls">
                 <span>Victim Ship</span>
-                <button type="button" class="group-toggle" data-group-target="victim_ship">Group</button>
+                {% set next_group = '' if filters.group_by == 'victim_ship' else 'victim_ship' %}
+                <a role="button" class="group-toggle{% if filters.group_by == 'victim_ship' %} active{% endif %}" href="?{{ filters.filter_qs }}{% if filters.filter_qs %}&{% endif %}sort={{ filters.sort }}&order={{ filters.order }}{% if next_group %}&group_by={{ next_group }}{% endif %}">
+                  {{ 'Ungroup' if filters.group_by == 'victim_ship' else 'Group' }}
+                </a>
               </div>
             </th>
             {{ sort_th('Attackers', 'attackers') }}
@@ -220,51 +230,102 @@
           </tr>
         </thead>
         <tbody>
-          {% for kill in kills %}
-          <tr>
-            <td>
-              <a href="{{ url_for('kill_detail', killmail_id=kill.killmail_id) }}">
-                {{ kill.killmail_time[:16].replace('T', ' ') }}
-              </a>
-            </td>
-            <td class="system-name" data-group-target="system" data-group-value="{{ kill.system_name or kill.solar_system_id }}"><a href="/?system_id={{ kill.solar_system_id }}">{{ kill.system_name or kill.solar_system_id }}</a></td>
-            <td>
-              <span class="sec-badge {{ kill.security_status | security_color }}">
-                {{ kill.security_status | security_display }}
-              </span>
-            </td>
-            <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}">
-              {% if kill.victim_ship_name %}
-                <a href="/?ship_type_id={{ kill.victim_ship_type_id }}">{{ kill.victim_ship_name }}</a>
-              {% else %}
-                <span class="unknown">Unknown</span>
-              {% endif %}
-            </td>
-            <td class="center">{{ kill.attacker_count }}</td>
-            <td class="center">
-              {% if filters.route_source_system_id %}
-                {{ kill.jumps_from_source if kill.jumps_from_source is not none else '—' }}
-              {% else %}
-                —
-              {% endif %}
-            </td>
-            <td class="isk-cell">{{ kill.total_value | isk }}</td>
-            <td class="isk-cell dropped">{{ kill.dropped_value | isk }}</td>
-            <td class="gank-cell">
-              {% if kill.is_confirmed_gank %}
-                <span class="gank-badge confirmed">GANK</span>
-              {% elif kill.is_gank_candidate %}
-                <span class="gank-badge candidate">?</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
+          {% if filters.group_by %}
+            {% for group in grouped_kills %}
+            <tr class="group-row" data-group-row>
+              <td colspan="9">
+                <button type="button" class="group-header" data-group-toggle aria-expanded="false">
+                  <span class="group-caret">▸</span> {{ group.key }} ({{ group.count }})
+                </button>
+              </td>
+            </tr>
+              {% for kill in group.rows %}
+              <tr class="group-child is-hidden" data-group-child>
+                <td>
+                  <a href="{{ url_for('kill_detail', killmail_id=kill.killmail_id) }}">
+                    {{ kill.killmail_time[:16].replace('T', ' ') }}
+                  </a>
+                </td>
+                <td class="system-name" data-group-target="system" data-group-value="{{ kill.system_name or kill.solar_system_id }}"><a href="/?system_id={{ kill.solar_system_id }}">{{ kill.system_name or kill.solar_system_id }}</a></td>
+                <td>
+                  <span class="sec-badge {{ kill.security_status | security_color }}">
+                    {{ kill.security_status | security_display }}
+                  </span>
+                </td>
+                <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}">
+                  {% if kill.victim_ship_name %}
+                    <a href="/?ship_type_id={{ kill.victim_ship_type_id }}">{{ kill.victim_ship_name }}</a>
+                  {% else %}
+                    <span class="unknown">Unknown</span>
+                  {% endif %}
+                </td>
+                <td class="center">{{ kill.attacker_count }}</td>
+                <td class="center">
+                  {% if filters.route_source_system_id %}
+                    {{ kill.jumps_from_source if kill.jumps_from_source is not none else '—' }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td class="isk-cell">{{ kill.total_value | isk }}</td>
+                <td class="isk-cell dropped">{{ kill.dropped_value | isk }}</td>
+                <td class="gank-cell">
+                  {% if kill.is_confirmed_gank %}
+                    <span class="gank-badge confirmed">GANK</span>
+                  {% elif kill.is_gank_candidate %}
+                    <span class="gank-badge candidate">?</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            {% endfor %}
+          {% else %}
+            {% for kill in kills %}
+            <tr>
+              <td>
+                <a href="{{ url_for('kill_detail', killmail_id=kill.killmail_id) }}">
+                  {{ kill.killmail_time[:16].replace('T', ' ') }}
+                </a>
+              </td>
+              <td class="system-name" data-group-target="system" data-group-value="{{ kill.system_name or kill.solar_system_id }}"><a href="/?system_id={{ kill.solar_system_id }}">{{ kill.system_name or kill.solar_system_id }}</a></td>
+              <td>
+                <span class="sec-badge {{ kill.security_status | security_color }}">
+                  {{ kill.security_status | security_display }}
+                </span>
+              </td>
+              <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}">
+                {% if kill.victim_ship_name %}
+                  <a href="/?ship_type_id={{ kill.victim_ship_type_id }}">{{ kill.victim_ship_name }}</a>
+                {% else %}
+                  <span class="unknown">Unknown</span>
+                {% endif %}
+              </td>
+              <td class="center">{{ kill.attacker_count }}</td>
+              <td class="center">
+                {% if filters.route_source_system_id %}
+                  {{ kill.jumps_from_source if kill.jumps_from_source is not none else '—' }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td class="isk-cell">{{ kill.total_value | isk }}</td>
+              <td class="isk-cell dropped">{{ kill.dropped_value | isk }}</td>
+              <td class="gank-cell">
+                {% if kill.is_confirmed_gank %}
+                  <span class="gank-badge confirmed">GANK</span>
+                {% elif kill.is_gank_candidate %}
+                  <span class="gank-badge candidate">?</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          {% endif %}
         </tbody>
       </table>
     </div>
 
     <!-- Pagination -->
-    {% if total_pages > 1 %}
+    {% if total_pages > 1 and not filters.group_by %}
     {% set sort_qs = 'sort=' ~ filters.sort ~ '&order=' ~ filters.order %}
     {% set pqs = (filters.filter_qs ~ ('&' if filters.filter_qs else '') ~ sort_qs) %}
     <nav class="pagination" aria-label="Pagination">
@@ -532,67 +593,28 @@ function setupMultiItemFilter() {
   setupAutocomplete('item-name-input', null, '/api/type-search', 'type_id', addItem);
 }
 
-function setupKillListGrouping() {
-  const table = document.querySelector('.kill-table');
-  if (!table) return;
-  const tbody = table.querySelector('tbody');
-  if (!tbody) return;
+function setupGroupedRows() {
+  const toggles = Array.from(document.querySelectorAll('[data-group-toggle]'));
+  if (!toggles.length) return;
 
-  const groupButtons = Array.from(document.querySelectorAll('.group-toggle'));
-  if (!groupButtons.length) return;
+  toggles.forEach((toggle) => {
+    const headerRow = toggle.closest('[data-group-row]');
+    if (!headerRow) return;
 
-  const originalRows = Array.from(tbody.querySelectorAll('tr'));
-  let activeGroup = null;
-
-  function setButtonState() {
-    groupButtons.forEach((button) => {
-      const isActive = button.dataset.groupTarget === activeGroup;
-      button.textContent = isActive ? 'Ungroup' : 'Group';
-      button.classList.toggle('active', isActive);
-    });
-  }
-
-  function buildGroupedRows(target) {
-    const groups = new Map();
-    originalRows.forEach((row) => {
-      const keyCell = row.querySelector(`td[data-group-target="${target}"]`);
-      const key = keyCell?.dataset.groupValue || keyCell?.textContent?.trim() || 'Unknown';
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(row);
-    });
-
-    const fragment = document.createDocumentFragment();
-    groups.forEach((rows, key) => {
-      const groupRow = document.createElement('tr');
-      groupRow.className = 'group-row';
-      const groupCell = document.createElement('td');
-      groupCell.colSpan = 9;
-      groupCell.textContent = `${key} (${rows.length})`;
-      groupRow.appendChild(groupCell);
-      fragment.appendChild(groupRow);
-      rows.forEach((row) => fragment.appendChild(row));
-    });
-    return fragment;
-  }
-
-  function render() {
-    tbody.innerHTML = '';
-    if (!activeGroup) {
-      originalRows.forEach((row) => tbody.appendChild(row));
-      return;
+    const children = [];
+    let next = headerRow.nextElementSibling;
+    while (next && next.hasAttribute('data-group-child')) {
+      children.push(next);
+      next = next.nextElementSibling;
     }
-    tbody.appendChild(buildGroupedRows(activeGroup));
-  }
 
-  groupButtons.forEach((button) => {
-    button.addEventListener('click', () => {
-      activeGroup = (activeGroup === button.dataset.groupTarget) ? null : button.dataset.groupTarget;
-      setButtonState();
-      render();
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      const nextState = !expanded;
+      toggle.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+      children.forEach((row) => row.classList.toggle('is-hidden', !nextState));
     });
   });
-
-  setButtonState();
 }
 
 restoreRememberedFilters();
@@ -602,6 +624,6 @@ setupAutocomplete('ship-name-input', 'ship_type_id', '/api/type-search', 'type_i
 setupAutocomplete('system-name-input', 'system_id', '/api/system-search', 'system_id');
 setupAutocomplete('route-source-system-name-input', 'route_source_system_id', '/api/system-search', 'system_id');
 setupIskRangeFilter();
-setupKillListGrouping();
+setupGroupedRows();
 </script>
 {% endblock %}
