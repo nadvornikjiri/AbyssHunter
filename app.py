@@ -193,11 +193,17 @@ def _parse_filters() -> dict:
     gank_filter = request.args.get("gank_filter", "").strip().lower()
     if gank_filter not in {"", "all", "confirmed", "candidate"}:
         gank_filter = "all"
-    if request.args.get("ganks_only") and gank_filter in {"", "all"}:
-        # Backwards-compatibility with the old checkbox query param.
-        gank_filter = "confirmed"
     if gank_filter == "":
         gank_filter = "all"
+
+    min_isk_lost = _int("min_isk_lost")
+    max_isk_lost = _int("max_isk_lost")
+    if min_isk_lost is not None:
+        min_isk_lost = max(0, min_isk_lost)
+    if max_isk_lost is not None:
+        max_isk_lost = max(0, min(config.ISK_LOST_FILTER_MAX, max_isk_lost))
+    if min_isk_lost is not None and max_isk_lost is not None and min_isk_lost > max_isk_lost:
+        min_isk_lost = max_isk_lost
 
     filters = {
         "page": page,
@@ -206,8 +212,8 @@ def _parse_filters() -> dict:
         "ship_type_id": _int("ship_type_id"),
         "character_id": _int("character_id"),
         "system_id": _int("system_id"),
-        "min_isk_lost": _int("min_isk_lost"),
-        "max_isk_lost": _int("max_isk_lost"),
+        "min_isk_lost": min_isk_lost,
+        "max_isk_lost": max_isk_lost,
         "min_sec": _float("min_sec"),
         "max_sec": _float("max_sec"),
         "gank_filter": gank_filter,
@@ -251,6 +257,8 @@ def index():
     )
 
     isk_lost_bounds = db.get_isk_lost_bounds(g.db)
+    isk_lost_bounds["max_isk_lost"] = min(isk_lost_bounds["max_isk_lost"], config.ISK_LOST_FILTER_MAX)
+    isk_lost_bounds["min_isk_lost"] = min(isk_lost_bounds["min_isk_lost"], isk_lost_bounds["max_isk_lost"])
     total_pages = max(1, math.ceil(total_count / config.PAGE_SIZE))
 
     # Resolve filter label names for display in the form

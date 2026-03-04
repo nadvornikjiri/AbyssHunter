@@ -99,14 +99,30 @@
                  value="{{ selected_max_isk }}"
                  step="1000000"
                  {% if min_isk_bound == max_isk_bound %}disabled{% endif %}>
-          <input type="hidden" name="min_isk_lost" id="min_isk_lost" value="{{ selected_min_isk }}">
-          <input type="hidden" name="max_isk_lost" id="max_isk_lost" value="{{ selected_max_isk }}">
+          <div class="isk-range-inputs">
+            <label>
+              Min ISK
+              <input type="number"
+                     name="min_isk_lost"
+                     id="min_isk_lost"
+                     min="{{ min_isk_bound }}"
+                     max="{{ max_isk_bound }}"
+                     step="1000000"
+                     value="{{ selected_min_isk }}">
+            </label>
+            <label>
+              Max ISK
+              <input type="number"
+                     name="max_isk_lost"
+                     id="max_isk_lost"
+                     min="{{ min_isk_bound }}"
+                     max="{{ max_isk_bound }}"
+                     step="1000000"
+                     value="{{ selected_max_isk }}">
+            </label>
+          </div>
         </div>
 
-        <label class="gank-check">
-          <input type="checkbox" name="ganks_only" value="1"
-                 {% if filters.ganks_only %}checked{% endif %}>
-          Confirmed Ganks Only
         <label>
           Gank Status
           <select name="gank_filter">
@@ -321,28 +337,37 @@ function setupIskRangeFilter() {
     return;
   }
 
-  function sync() {
-    let minValue = Number(minSlider.value);
-    let maxValue = Number(maxSlider.value);
+  const rangeMin = Number(minSlider.min || 0);
+  const rangeMax = Number(minSlider.max || 0);
+
+  function clamp(value) {
+    return Math.min(rangeMax, Math.max(rangeMin, Number(value || 0)));
+  }
+
+  function sync(source = 'slider') {
+    let minValue = source === 'input' ? clamp(minInput.value) : Number(minSlider.value);
+    let maxValue = source === 'input' ? clamp(maxInput.value) : Number(maxSlider.value);
     if (minValue > maxValue) {
-      if (document.activeElement === minSlider) {
+      if (document.activeElement === minInput || document.activeElement === minSlider) {
         maxValue = minValue;
-        maxSlider.value = String(maxValue);
       } else {
         minValue = maxValue;
-        minSlider.value = String(minValue);
       }
     }
 
+    minSlider.value = String(minValue);
+    maxSlider.value = String(maxValue);
     minInput.value = String(minValue);
     maxInput.value = String(maxValue);
     minDisplay.textContent = formatIsk(minValue);
     maxDisplay.textContent = formatIsk(maxValue);
   }
 
-  minSlider.addEventListener('input', sync);
-  maxSlider.addEventListener('input', sync);
-  sync();
+  minSlider.addEventListener('input', () => sync('slider'));
+  maxSlider.addEventListener('input', () => sync('slider'));
+  minInput.addEventListener('input', () => sync('input'));
+  maxInput.addEventListener('input', () => sync('input'));
+  sync('input');
 }
 
 function setupAutocomplete(inputId, hiddenId, endpoint, idField, onSelect) {

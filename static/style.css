@@ -68,7 +68,14 @@
   width: 100%;
 }
 
-.gank-check { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+.isk-range-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+.isk-range-inputs label { margin-bottom: 0; }
+
 .filter-buttons { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
 .filter-buttons button,
 .filter-buttons a { flex: 1; padding: 0.4rem; font-size: 0.85rem; }
