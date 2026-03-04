@@ -504,11 +504,13 @@ def get_killmails_page(
             v.character_id   AS victim_character_id,
             (SELECT COUNT(*) FROM attackers a WHERE a.killmail_id = k.killmail_id) AS attacker_count,
             sc.name          AS system_name,
-            tc_ship.name     AS victim_ship_name
+            tc_ship.name     AS victim_ship_name,
+            cc.name          AS victim_name
         FROM killmails k
         LEFT JOIN victims v   ON v.killmail_id = k.killmail_id
         LEFT JOIN system_cache sc ON sc.system_id = k.solar_system_id
         LEFT JOIN type_cache tc_ship ON tc_ship.type_id = v.ship_type_id
+        LEFT JOIN character_cache cc ON cc.character_id = v.character_id
         {where_sql}
         ORDER BY {order_clause}
         LIMIT ? OFFSET ?
@@ -551,9 +553,10 @@ def get_killmail_detail(conn: sqlite3.Connection, killmail_id: int) -> Optional[
 
     victim = conn.execute(
         """
-        SELECT v.*, tc.name AS ship_name
+        SELECT v.*, tc.name AS ship_name, cc.name AS character_name
         FROM victims v
         LEFT JOIN type_cache tc ON tc.type_id = v.ship_type_id
+        LEFT JOIN character_cache cc ON cc.character_id = v.character_id
         WHERE v.killmail_id = ?
         """,
         (killmail_id,),
@@ -561,9 +564,10 @@ def get_killmail_detail(conn: sqlite3.Connection, killmail_id: int) -> Optional[
 
     attackers = conn.execute(
         """
-        SELECT a.*, tc.name AS ship_name
+        SELECT a.*, tc.name AS ship_name, cc.name AS character_name
         FROM attackers a
         LEFT JOIN type_cache tc ON tc.type_id = a.ship_type_id
+        LEFT JOIN character_cache cc ON cc.character_id = a.character_id
         WHERE a.killmail_id = ?
         ORDER BY a.damage_done DESC
         """,

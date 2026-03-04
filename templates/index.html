@@ -213,6 +213,7 @@
               </div>
             </th>
             {{ sort_th('Sec', 'sec') }}
+            <th>Victim</th>
             <th data-group-col="victim_ship">
               <div class="th-controls">
                 <span>Victim Ship</span>
@@ -233,7 +234,7 @@
           {% if filters.group_by %}
             {% for group in grouped_kills %}
             <tr class="group-row" data-group-row>
-              <td colspan="9">
+              <td colspan="10">
                 <button type="button" class="group-header" data-group-toggle aria-expanded="false">
                   <span class="group-caret">▸</span> {{ group.key }} ({{ group.count }})
                 </button>
@@ -251,6 +252,13 @@
                   <span class="sec-badge {{ kill.security_status | security_color }}">
                     {{ kill.security_status | security_display }}
                   </span>
+                </td>
+                <td>
+                  {% if kill.victim_character_id %}
+                    <a href="/?character_id={{ kill.victim_character_id }}">{{ kill.victim_name or kill.victim_character_id }}</a>
+                  {% else %}
+                    <span class="unknown">NPC / Unknown</span>
+                  {% endif %}
                 </td>
                 <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}">
                   {% if kill.victim_ship_name %}
@@ -292,6 +300,13 @@
                 <span class="sec-badge {{ kill.security_status | security_color }}">
                   {{ kill.security_status | security_display }}
                 </span>
+              </td>
+              <td>
+                {% if kill.victim_character_id %}
+                  <a href="/?character_id={{ kill.victim_character_id }}">{{ kill.victim_name or kill.victim_character_id }}</a>
+                {% else %}
+                  <span class="unknown">NPC / Unknown</span>
+                {% endif %}
               </td>
               <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}">
                 {% if kill.victim_ship_name %}
