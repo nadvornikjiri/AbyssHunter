@@ -41,6 +41,15 @@
 .filters-panel label    { margin-bottom: 0.5rem; font-size: 0.85rem; }
 .filters-panel input[type="text"],
 .filters-panel input[type="number"] { padding: 0.3rem 0.5rem; font-size: 0.85rem; }
+.selected-items { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.4rem; }
+.item-chip {
+  border: 1px solid var(--pico-primary-border);
+  background: rgba(46, 255, 183, 0.15);
+  color: var(--pico-color);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.55rem;
+}
 
 .sec-range { display: flex; gap: 0.5rem; }
 .sec-range label { flex: 1; }

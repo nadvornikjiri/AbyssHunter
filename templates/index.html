@@ -11,13 +11,22 @@
         <legend>Filters</legend>
 
         <label>
-          Dropped Item
+          Dropped Item(s)
           <input type="text"
                  id="item-name-input"
-                 placeholder="e.g. Damage Control II"
-                 value="{{ item_name or '' }}"
+                 placeholder="Add item (e.g. Damage Control II)"
+                 value=""
                  autocomplete="off">
-          <input type="hidden" name="item_id" id="item_id" value="{{ filters.item_id or '' }}">
+          <input type="hidden" name="item_id" id="item_ids" value="{{ filters.item_ids|join(',') }}">
+          <div id="selected-items" class="selected-items"></div>
+        </label>
+
+        <label>
+          Item Match
+          <select name="item_match" id="item_match">
+            <option value="any" {% if filters.item_match == 'any' %}selected{% endif %}>Any selected item</option>
+            <option value="all" {% if filters.item_match == 'all' %}selected{% endif %}>All selected items</option>
+          </select>
         </label>
 
         <label>
@@ -232,47 +241,65 @@ function formatIsk(value) {
   return `${Math.round(v)}`;
 }
 
-function setupIskRangeFilter() {
-  const container = document.querySelector('[data-isk-range]');
-  if (!container) return;
+function restoreRememberedFilters() {
+  if (hasQueryParam('clear_filters')) {
+    localStorage.removeItem(FILTER_STORAGE_KEY);
+    return;
+  }
 
-  const minSlider = document.getElementById('min_isk_lost_slider');
-  const maxSlider = document.getElementById('max_isk_lost_slider');
-  const minHidden = document.getElementById('min_isk_lost');
-  const maxHidden = document.getElementById('max_isk_lost');
-  const minDisplay = container.querySelector('[data-isk-min-display]');
-  const maxDisplay = container.querySelector('[data-isk-max-display]');
-  if (!minSlider || !maxSlider || !minHidden || !maxHidden || !minDisplay || !maxDisplay) return;
+  const stored = getStoredFilters();
 
-  const sync = () => {
-    let minValue = Number(minSlider.value);
-    let maxValue = Number(maxSlider.value);
+  const itemIds = document.getElementById('item_ids');
+  const itemMatch = document.getElementById('item_match');
+  const minSec = document.querySelector('input[name="min_sec"]');
+  const maxSec = document.querySelector('input[name="max_sec"]');
 
-    if (minValue > maxValue) {
-      if (document.activeElement === minSlider) {
-        maxValue = minValue;
-        maxSlider.value = String(maxValue);
-      } else {
-        minValue = maxValue;
-        minSlider.value = String(minValue);
-      }
-    }
+  if (itemIds && !hasQueryParam('item_id') && stored.item_ids !== undefined) {
+    itemIds.value = stored.item_ids || '';
+    window.__rememberedSelectedItems = Array.isArray(stored.selected_items) ? stored.selected_items : [];
+  }
 
-    minHidden.value = String(minValue);
-    maxHidden.value = String(maxValue);
-    minDisplay.textContent = formatIsk(minValue);
-    maxDisplay.textContent = formatIsk(maxValue);
-  };
+  if (itemMatch && !hasQueryParam('item_match') && stored.item_match) {
+    itemMatch.value = stored.item_match;
+  }
+
+  if (minSec && !hasQueryParam('min_sec') && stored.min_sec !== undefined) {
+    minSec.value = stored.min_sec;
+  }
+
+  if (maxSec && !hasQueryParam('max_sec') && stored.max_sec !== undefined) {
+    maxSec.value = stored.max_sec;
+  }
+
+}
+
+function rememberFiltersOnSubmit() {
+  const form = document.querySelector('.filters-panel form');
+  if (!form) return;
+
+  form.addEventListener('submit', () => {
+    const itemIds = document.getElementById('item_ids');
+    const itemMatch = document.getElementById('item_match');
+    const minSec = form.querySelector('input[name="min_sec"]');
+    const maxSec = form.querySelector('input[name="max_sec"]');
+
+    const payload = {
+      item_ids: itemIds?.value || '',
+      selected_items: window.__currentSelectedItems || [],
+      item_match: itemMatch?.value || 'any',
+      min_sec: minSec?.value ?? '',
+      max_sec: maxSec?.value ?? ''
+    };
 
   minSlider.addEventListener('input', sync);
   maxSlider.addEventListener('input', sync);
   sync();
 }
 
-function setupAutocomplete(inputId, hiddenId, endpoint, idField) {
+function setupAutocomplete(inputId, hiddenId, endpoint, idField, onSelect) {
   const input = document.getElementById(inputId);
-  const hidden = document.getElementById(hiddenId);
-  if (!input || !hidden) return;
+  const hidden = hiddenId ? document.getElementById(hiddenId) : null;
+  if (!input) return;
 
   let timeout;
   let datalist = document.createElement('datalist');
@@ -287,7 +314,7 @@ function setupAutocomplete(inputId, hiddenId, endpoint, idField) {
     clearTimeout(timeout);
     // If user clears the field, also clear the hidden id
     if (!input.value.trim()) {
-      hidden.value = '';
+      if (hidden) hidden.value = '';
       datalist.innerHTML = '';
       return;
     }
@@ -310,17 +337,66 @@ function setupAutocomplete(inputId, hiddenId, endpoint, idField) {
   input.addEventListener('change', () => {
     const id = idMap[input.value];
     if (id !== undefined) {
-      hidden.value = id;
+      if (hidden) hidden.value = id;
+      if (onSelect) onSelect({ id, name: input.value });
     } else if (!input.value.trim()) {
-      hidden.value = '';
+      if (hidden) hidden.value = '';
     }
   });
 }
 
-restoreRememberedFilters();
-rememberFiltersOnSubmit();
+const initialSelectedItems = {{ item_names|tojson }};
 
-setupAutocomplete('item-name-input', 'item_id', '/api/type-search', 'type_id');
+function setupMultiItemFilter() {
+  const itemInput = document.getElementById('item-name-input');
+  const itemIds = document.getElementById('item_ids');
+  const selectedItems = document.getElementById('selected-items');
+  if (!itemInput || !itemIds || !selectedItems) return;
+
+  const items = [];
+
+  function syncHidden() {
+    itemIds.value = items.map(i => i.id).join(',');
+    window.__currentSelectedItems = items.map(i => ({ id: i.id, name: i.name }));
+  }
+
+  function render() {
+    selectedItems.innerHTML = '';
+    items.forEach((item, index) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'item-chip';
+      chip.textContent = item.name;
+      chip.title = 'Remove';
+      chip.addEventListener('click', () => {
+        items.splice(index, 1);
+        syncHidden();
+        render();
+      });
+      selectedItems.appendChild(chip);
+    });
+  }
+
+  function addItem(item) {
+    if (!item || item.id === undefined) return;
+    if (items.some(i => i.id === item.id)) return;
+    items.push(item);
+    syncHidden();
+    render();
+    itemInput.value = '';
+  }
+
+  const restoredItems = (!hasQueryParam('item_id') && Array.isArray(window.__rememberedSelectedItems) && window.__rememberedSelectedItems.length)
+    ? window.__rememberedSelectedItems
+    : initialSelectedItems;
+  restoredItems.forEach(addItem);
+
+  setupAutocomplete('item-name-input', null, '/api/type-search', 'type_id', addItem);
+}
+
+restoreRememberedFilters();
+setupMultiItemFilter();
+rememberFiltersOnSubmit();
 setupAutocomplete('ship-name-input', 'ship_type_id', '/api/type-search', 'type_id');
 setupAutocomplete('system-name-input', 'system_id', '/api/system-search', 'system_id');
 setupIskRangeFilter();
