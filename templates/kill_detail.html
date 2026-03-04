@@ -65,8 +65,14 @@
           </td>
         </tr>
         <tr>
-          <th>Character ID</th>
-          <td>{{ victim.character_id or 'NPC / Unknown' }}</td>
+          <th>Character</th>
+          <td>
+            {% if victim.character_id %}
+              <a href="{{ url_for('index') }}?character_id={{ victim.character_id }}">{{ victim.character_name or victim.character_id }}</a>
+            {% else %}
+              NPC / Unknown
+            {% endif %}
+          </td>
         </tr>
         <tr>
           <th>Corporation ID</th>
@@ -161,7 +167,13 @@
         <tbody>
           {% for atk in attackers %}
           <tr class="{% if atk.is_concord %}concord-row{% endif %}">
-            <td>{{ atk.character_id or 'NPC' }}</td>
+            <td>
+              {% if atk.character_id %}
+                <a href="{{ url_for('index') }}?character_id={{ atk.character_id }}">{{ atk.character_name or atk.character_id }}</a>
+              {% else %}
+                NPC
+              {% endif %}
+            </td>
             <td>
               {% if atk.ship_type_id %}
                 {% if atk.ship_name %}
