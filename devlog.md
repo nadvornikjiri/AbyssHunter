@@ -1,5 +1,13 @@
 # Devlog
 
+## 2026-03-04 — Jita IV-4 minimum sell prices replace ESI adjusted prices
+
+### Changes
+- **config.py**: Added `MARKET_ORDER_CONCURRENCY = 20`.
+- **fetcher.py**: Added `JITA_REGION_ID = 10000002` and `JITA_STATION_ID = 60003760`. Added `_fetch_jita_prices_async()` — paginates `GET /markets/10000002/orders/?order_type=sell`, discovers total pages from `X-Pages` header on page 1, then fetches remaining pages with up to `MARKET_ORDER_CONCURRENCY` concurrent requests via aiohttp. Filters for `location_id == 60003760`, takes minimum sell price per `type_id`. `fetch_market_prices()` now calls this via `asyncio.run()` and accepts an optional `progress` dict for live page-count messages. Called from `sync_kills_everef` with `progress=progress`. Items not currently listed in Jita will have a price of 0 ISK.
+
+---
+
 ## 2026-03-04 — Per-day ingestion progress bars
 
 ### Changes

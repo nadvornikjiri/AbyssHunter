@@ -543,37 +543,104 @@ def sync_kills_batch(conn, days_back: int = 1) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Market prices — single bulk ESI call, local ISK value calculation
+# Market prices — Jita IV-4 minimum sell prices via ESI market orders
 # ---------------------------------------------------------------------------
 
-def fetch_market_prices(force: bool = False) -> dict:
-    """
-    Fetch adjusted prices for all tradeable items from ESI /markets/prices/.
+JITA_REGION_ID  = 10000002   # The Forge
+JITA_STATION_ID = 60003760   # Jita IV - Moon 4 - Caldari Navy Assembly Plant
 
-    Returns {type_id: adjusted_price}. Results are cached in-process for
-    _MARKET_PRICES_TTL seconds (1 hour) to avoid re-fetching during a
-    multi-day sync run. Pass force=True to bypass the cache and re-fetch now.
+
+async def _fetch_jita_prices_async(progress: Optional[dict] = None) -> dict:
+    """
+    Fetch minimum Jita sell price for every item currently listed at
+    Jita IV-4 (station 60003760).
+
+    Paginates GET /markets/10000002/orders/?order_type=sell with up to
+    MARKET_ORDER_CONCURRENCY concurrent requests, reads X-Pages from the
+    first response to know total page count, then gathers all remaining
+    pages in parallel. Returns {type_id: min_sell_price}.
+    """
+    url = f"{config.ESI_BASE}/markets/{JITA_REGION_ID}/orders/"
+    headers = {"User-Agent": config.USER_AGENT, "Accept": "application/json"}
+    sem = asyncio.Semaphore(config.MARKET_ORDER_CONCURRENCY)
+
+    async with aiohttp.ClientSession(headers=headers) as session:
+        # Page 1: fetch data + discover total page count from X-Pages header
+        async with session.get(
+            url,
+            params={"order_type": "sell", "page": 1},
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as r:
+            n_pages = int(r.headers.get("X-Pages", 1))
+            page1 = await r.json() if r.status == 200 else []
+
+        logger.info("Jita market orders: %d page(s) to fetch", n_pages)
+        if progress is not None:
+            progress.update(message=f"Fetching Jita sell prices — {n_pages} pages…")
+
+        pages_done = 1
+
+        async def _get_page(page: int) -> list:
+            nonlocal pages_done
+            async with sem:
+                try:
+                    async with session.get(
+                        url,
+                        params={"order_type": "sell", "page": page},
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as r:
+                        result = await r.json() if r.status == 200 else []
+                except Exception as e:
+                    logger.warning("Jita market page %d failed: %s", page, e)
+                    result = []
+            pages_done += 1
+            if progress is not None:
+                progress.update(
+                    message=f"Fetching Jita sell prices — {pages_done}/{n_pages} pages…"
+                )
+            return result
+
+        remaining = await asyncio.gather(*[_get_page(p) for p in range(2, n_pages + 1)])
+
+    # Consolidate: minimum sell price per type at Jita station
+    prices: dict = {}
+    for order in page1:
+        if order.get("location_id") == JITA_STATION_ID:
+            t, p = order["type_id"], order["price"]
+            if t not in prices or p < prices[t]:
+                prices[t] = p
+    for page_orders in remaining:
+        for order in page_orders:
+            if order.get("location_id") == JITA_STATION_ID:
+                t, p = order["type_id"], order["price"]
+                if t not in prices or p < prices[t]:
+                    prices[t] = p
+
+    logger.info("Jita sell prices consolidated: %d distinct type(s)", len(prices))
+    return prices
+
+
+def fetch_market_prices(force: bool = False, progress: Optional[dict] = None) -> dict:
+    """
+    Fetch minimum Jita IV-4 sell prices for all currently listed items.
+
+    Uses ESI /markets/10000002/orders/?order_type=sell (paginated, parallel),
+    filters for location_id 60003760, and returns {type_id: min_sell_price}.
+    Results are cached in-process for _MARKET_PRICES_TTL seconds (1 hour).
+    Pass force=True to bypass the cache and re-fetch immediately.
     """
     global _market_prices, _market_prices_fetched_at
     now = time.monotonic()
     if not force and _market_prices and (now - _market_prices_fetched_at) < _MARKET_PRICES_TTL:
         return _market_prices
 
-    _wait_esi()
-    url = f"{config.ESI_BASE}/markets/prices/"
     try:
-        r = _get_session().get(url, timeout=30)
-        r.raise_for_status()
-        _market_prices = {
-            item["type_id"]: item.get("adjusted_price", 0.0)
-            for item in r.json()
-            if item.get("adjusted_price") is not None
-        }
-        _market_prices_fetched_at = now
-        logger.info("Fetched %d item prices from ESI /markets/prices/", len(_market_prices))
-    except requests.RequestException as e:
-        logger.error("Failed to fetch market prices: %s", e)
-        # fall through returning stale cache (or empty dict on first failure)
+        _market_prices = asyncio.run(_fetch_jita_prices_async(progress=progress))
+        _market_prices_fetched_at = time.monotonic()
+        logger.info("Jita price cache updated: %d items", len(_market_prices))
+    except Exception as e:
+        logger.error("Failed to fetch Jita market prices: %s", e)
+        # Fall through returning stale cache (or empty dict on first failure)
 
     return _market_prices
 
@@ -585,8 +652,8 @@ def _calc_kill_value(km_data: dict, prices: dict) -> tuple:
     total_value  = ship hull + all destroyed items + all dropped items
     dropped_value = dropped items only
 
-    Uses ESI adjusted_price which is a global market approximation. Values
-    will be close to (but not identical to) zKillboard's Jita-based figures.
+    Uses minimum Jita IV-4 sell prices. Items not listed in Jita will have
+    a price of 0 ISK.
     """
     victim = km_data.get("victim", {})
     items = victim.get("items", [])
@@ -862,9 +929,9 @@ def sync_kills_everef(
         for i in range(1, days_back + 1)  # start from yesterday; today's archive isn't published yet
     ]
 
-    # Single bulk call: all item prices for ISK value calculation
-    _prog(phase="fetching_prices", message="Fetching market prices from ESI…")
-    prices = fetch_market_prices()
+    # Fetch Jita sell prices — paginated async fetch, cached for 1 hour
+    _prog(phase="fetching_prices", message="Fetching Jita sell prices from ESI…")
+    prices = fetch_market_prices(progress=progress)
     logger.info("Market prices ready (%d items)", len(prices))
 
     # Bulk-prefetch every EVE solar system before touching killmails.
