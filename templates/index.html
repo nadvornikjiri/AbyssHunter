@@ -59,6 +59,24 @@
           <input type="hidden" name="character_id" id="character_id" value="{{ filters.character_id or '' }}">
         </label>
 
+        <label>
+          Jump Source System
+          <input type="text"
+                 id="route-source-system-name-input"
+                 placeholder="e.g. Amarr"
+                 value="{{ route_source_system_name or '' }}"
+                 autocomplete="off">
+          <input type="hidden" name="route_source_system_id" id="route_source_system_id" value="{{ filters.route_source_system_id or '' }}">
+        </label>
+
+        <label>
+          Route Preference
+          <select name="route_flag" id="route_flag">
+            <option value="shortest" {% if filters.route_flag == 'shortest' %}selected{% endif %}>Shortest route</option>
+            <option value="secure" {% if filters.route_flag == 'secure' %}selected{% endif %}>Safer route</option>
+          </select>
+        </label>
+
 
         <div class="sec-range">
           <label>
@@ -195,6 +213,7 @@
               </div>
             </th>
             {{ sort_th('Attackers', 'attackers') }}
+            <th>Jumps</th>
             {{ sort_th('ISK Lost', 'total_value') }}
             {{ sort_th('ISK Dropped', 'dropped_value') }}
             <th>Gank</th>
@@ -222,6 +241,13 @@
               {% endif %}
             </td>
             <td class="center">{{ kill.attacker_count }}</td>
+            <td class="center">
+              {% if filters.route_source_system_id %}
+                {{ kill.jumps_from_source if kill.jumps_from_source is not none else '—' }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
             <td class="isk-cell">{{ kill.total_value | isk }}</td>
             <td class="isk-cell dropped">{{ kill.dropped_value | isk }}</td>
             <td class="gank-cell">
@@ -300,6 +326,9 @@ function restoreRememberedFilters() {
   const itemMatch = document.getElementById('item_match');
   const minSec = document.querySelector('input[name="min_sec"]');
   const maxSec = document.querySelector('input[name="max_sec"]');
+  const routeSourceSystemName = document.getElementById('route-source-system-name-input');
+  const routeSourceSystemId = document.getElementById('route_source_system_id');
+  const routeFlag = document.getElementById('route_flag');
 
   if (itemIds && !hasQueryParam('item_id') && stored.item_ids !== undefined) {
     itemIds.value = stored.item_ids || '';
@@ -318,6 +347,18 @@ function restoreRememberedFilters() {
     maxSec.value = stored.max_sec;
   }
 
+  if (routeSourceSystemId && !hasQueryParam('route_source_system_id') && stored.route_source_system_id !== undefined) {
+    routeSourceSystemId.value = stored.route_source_system_id || '';
+  }
+
+  if (routeSourceSystemName && !hasQueryParam('route_source_system_id') && stored.route_source_system_name) {
+    routeSourceSystemName.value = stored.route_source_system_name;
+  }
+
+  if (routeFlag && !hasQueryParam('route_flag') && stored.route_flag) {
+    routeFlag.value = stored.route_flag;
+  }
+
 }
 
 function rememberFiltersOnSubmit() {
@@ -329,13 +370,19 @@ function rememberFiltersOnSubmit() {
     const itemMatch = document.getElementById('item_match');
     const minSec = form.querySelector('input[name="min_sec"]');
     const maxSec = form.querySelector('input[name="max_sec"]');
+    const routeSourceSystemName = document.getElementById('route-source-system-name-input');
+    const routeSourceSystemId = document.getElementById('route_source_system_id');
+    const routeFlag = document.getElementById('route_flag');
 
     const payload = {
       item_ids: itemIds?.value || '',
       selected_items: window.__currentSelectedItems || [],
       item_match: itemMatch?.value || 'any',
       min_sec: minSec?.value ?? '',
-      max_sec: maxSec?.value ?? ''
+      max_sec: maxSec?.value ?? '',
+      route_source_system_id: routeSourceSystemId?.value ?? '',
+      route_source_system_name: routeSourceSystemName?.value ?? '',
+      route_flag: routeFlag?.value || 'shortest'
     };
 
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(payload));
@@ -519,7 +566,7 @@ function setupKillListGrouping() {
       const groupRow = document.createElement('tr');
       groupRow.className = 'group-row';
       const groupCell = document.createElement('td');
-      groupCell.colSpan = 8;
+      groupCell.colSpan = 9;
       groupCell.textContent = `${key} (${rows.length})`;
       groupRow.appendChild(groupCell);
       fragment.appendChild(groupRow);
@@ -553,6 +600,7 @@ setupMultiItemFilter();
 rememberFiltersOnSubmit();
 setupAutocomplete('ship-name-input', 'ship_type_id', '/api/type-search', 'type_id');
 setupAutocomplete('system-name-input', 'system_id', '/api/system-search', 'system_id');
+setupAutocomplete('route-source-system-name-input', 'route_source_system_id', '/api/system-search', 'system_id');
 setupIskRangeFilter();
 setupKillListGrouping();
 </script>
