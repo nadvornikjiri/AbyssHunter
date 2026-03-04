@@ -171,6 +171,7 @@ def _parse_filters() -> dict:
         "page": page,
         "item_id": _int("item_id"),
         "ship_type_id": _int("ship_type_id"),
+        "character_id": _int("character_id"),
         "system_id": _int("system_id"),
         "min_sec": _float("min_sec"),
         "max_sec": _float("max_sec"),
@@ -198,6 +199,7 @@ def index():
         page_size=config.PAGE_SIZE,
         item_id=filters["item_id"],
         ship_type_id=filters["ship_type_id"],
+        character_id=filters["character_id"],
         system_id=filters["system_id"],
         min_sec=filters["min_sec"],
         max_sec=filters["max_sec"],
@@ -211,6 +213,7 @@ def index():
     item_name = None
     ship_name = None
     system_name = None
+    character_name = None
     if filters["item_id"]:
         row = db.get_cached_type(g.db, filters["item_id"])
         item_name = row["name"] if row else str(filters["item_id"])
@@ -220,6 +223,9 @@ def index():
     if filters["system_id"]:
         row = db.get_cached_system(g.db, filters["system_id"])
         system_name = row["name"] if row else str(filters["system_id"])
+    if filters["character_id"]:
+        row = db.get_cached_character(g.db, filters["character_id"])
+        character_name = row["name"] if row else str(filters["character_id"])
 
     return render_template(
         "index.html",
@@ -230,6 +236,7 @@ def index():
         item_name=item_name,
         ship_name=ship_name,
         system_name=system_name,
+        character_name=character_name,
     )
 
 
@@ -432,6 +439,15 @@ def system_search():
         return jsonify([])
     results = db.search_system_cache(g.db, query, limit=20)
     return jsonify([{"system_id": r["system_id"], "name": r["name"]} for r in results])
+
+
+@app.route("/api/character-search")
+def character_search():
+    query = request.args.get("q", "").strip()
+    if len(query) < 2:
+        return jsonify([])
+    results = db.search_character_cache(g.db, query, limit=20)
+    return jsonify([{"character_id": r["character_id"], "name": r["name"]} for r in results])
 
 
 # ---------------------------------------------------------------------------
