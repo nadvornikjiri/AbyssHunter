@@ -102,6 +102,35 @@
 .sort-arrow      { margin-left: 0.25em; font-size: 0.75em; opacity: 0.9; }
 .sort-arrow.muted { opacity: 0.25; }
 
+.th-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.th-controls > span {
+  padding: var(--pico-table-cell-padding-block) 0;
+}
+
+.group-toggle {
+  margin: 0;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+.group-toggle.active {
+  background: var(--pico-primary-background);
+  border-color: var(--pico-primary-border);
+  color: var(--pico-primary-inverse);
+}
+
+.group-row td {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--pico-muted-border-color) 25%, transparent);
+}
+
 .result-count { margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--pico-muted-color); }
 
 /* Security badge */

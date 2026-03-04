@@ -212,6 +212,8 @@ def _parse_filters() -> dict:
         "ship_type_id": _int("ship_type_id"),
         "character_id": _int("character_id"),
         "system_id": _int("system_id"),
+        "route_source_system_id": _int("route_source_system_id"),
+        "route_flag": request.args.get("route_flag", "shortest").strip().lower(),
         "min_isk_lost": min_isk_lost,
         "max_isk_lost": max_isk_lost,
         "min_sec": _float("min_sec"),
@@ -220,6 +222,9 @@ def _parse_filters() -> dict:
         "sort": sort,
         "order": order,
     }
+    if filters["route_flag"] not in {"shortest", "secure"}:
+        filters["route_flag"] = "shortest"
+
     # Build a querystring without 'page', 'sort', 'order' for link generation
     qs_pairs = []
     for key, value in request.args.items(multi=True):
@@ -279,9 +284,31 @@ def index():
         row = db.get_cached_character(g.db, filters["character_id"])
         character_name = row["name"] if row else str(filters["character_id"])
 
+    route_source_system_name = None
+    if filters["route_source_system_id"]:
+        row = db.get_cached_system(g.db, filters["route_source_system_id"])
+        route_source_system_name = row["name"] if row else str(filters["route_source_system_id"])
+
+    kills = [dict(r) for r in rows]
+    if filters["route_source_system_id"]:
+        route_flag = "secure" if filters["route_flag"] == "secure" else "shortest"
+        jump_map: dict[int, Optional[int]] = {}
+        destination_ids = {k["solar_system_id"] for k in kills}
+        for destination_system_id in destination_ids:
+            jump_map[destination_system_id] = fetcher.fetch_route_jumps(
+                filters["route_source_system_id"],
+                destination_system_id,
+                route_flag,
+            )
+        for kill in kills:
+            kill["jumps_from_source"] = jump_map.get(kill["solar_system_id"])
+    else:
+        for kill in kills:
+            kill["jumps_from_source"] = None
+
     return render_template(
         "index.html",
-        kills=[dict(r) for r in rows],
+        kills=kills,
         total_count=total_count,
         total_pages=total_pages,
         isk_lost_bounds=isk_lost_bounds,
@@ -289,6 +316,7 @@ def index():
         item_names=item_names,
         ship_name=ship_name,
         system_name=system_name,
+        route_source_system_name=route_source_system_name,
         character_name=character_name,
     )
 
