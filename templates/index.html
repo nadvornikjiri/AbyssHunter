@@ -40,6 +40,17 @@
           <input type="hidden" name="system_id" id="system_id" value="{{ filters.system_id or '' }}">
         </label>
 
+        <label>
+          Character
+          <input type="text"
+                 id="character-name-input"
+                 placeholder="e.g. James 315"
+                 value="{{ character_name or '' }}"
+                 autocomplete="off">
+          <input type="hidden" name="character_id" id="character_id" value="{{ filters.character_id or '' }}">
+        </label>
+
+
         <div class="sec-range">
           <label>
             Min Security
@@ -87,11 +98,18 @@
           <input type="checkbox" name="ganks_only" value="1"
                  {% if filters.ganks_only %}checked{% endif %}>
           Confirmed Ganks Only
+        <label>
+          Gank Status
+          <select name="gank_filter">
+            <option value="all" {% if filters.gank_filter == 'all' %}selected{% endif %}>All kills</option>
+            <option value="confirmed" {% if filters.gank_filter == 'confirmed' %}selected{% endif %}>Confirmed ganks only</option>
+            <option value="candidate" {% if filters.gank_filter == 'candidate' %}selected{% endif %}>Candidates only</option>
+          </select>
         </label>
 
         <div class="filter-buttons">
           <button type="submit">Apply</button>
-          <a href="/" role="button" class="secondary outline">Clear</a>
+          <a href="/?clear_filters=1" role="button" class="secondary outline">Clear</a>
         </div>
       </fieldset>
     </form>
@@ -298,6 +316,9 @@ function setupAutocomplete(inputId, hiddenId, endpoint, idField) {
     }
   });
 }
+
+restoreRememberedFilters();
+rememberFiltersOnSubmit();
 
 setupAutocomplete('item-name-input', 'item_id', '/api/type-search', 'type_id');
 setupAutocomplete('ship-name-input', 'ship_type_id', '/api/type-search', 'type_id');
