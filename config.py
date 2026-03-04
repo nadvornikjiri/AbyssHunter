@@ -25,6 +25,7 @@ POD_TYPE_IDS        = frozenset({670, 33328})  # Capsule, Capsule - Genolution '
 
 # Pagination
 PAGE_SIZE = 50
+ISK_LOST_FILTER_MAX = 20_000_000_000  # 20B ISK hard cap for the max ISK-lost filter
 
 # Security class thresholds (raw ESI float values)
 HIGHSEC_MIN = 0.5
