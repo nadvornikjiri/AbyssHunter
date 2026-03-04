@@ -1,5 +1,13 @@
 # Devlog
 
+## 2026-03-04 — Remove cap on imported days
+
+### Changes
+- **app.py**: Removed the `min(30, …)` server-side clamp on `days_back`; now only enforces a minimum of 1.
+- **sync.html**: Removed `max="30"` from the days-back input and updated the label to drop the "(1–30)" range hint.
+
+---
+
 ## 2026-03-04 — Kill detail EFT export for pyfa
 
 ### Changes

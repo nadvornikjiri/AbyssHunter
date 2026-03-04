@@ -314,7 +314,7 @@ def kill_detail(killmail_id: int):
 @app.route("/sync", methods=["GET", "POST"])
 def sync():
     if request.method == "POST":
-        days_back = min(30, max(1, int(request.form.get("days_back", 1))))
+        days_back = max(1, int(request.form.get("days_back", 1)))
         job_id = uuid.uuid4().hex[:12]
         cancel_event = threading.Event()
         progress = {
