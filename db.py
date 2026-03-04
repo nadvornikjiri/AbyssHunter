@@ -402,6 +402,8 @@ def get_killmails_page(
     ship_type_id: Optional[int] = None,
     character_id: Optional[int] = None,
     system_id: Optional[int] = None,
+    min_isk_lost: Optional[int] = None,
+    max_isk_lost: Optional[int] = None,
     min_sec: Optional[float] = None,
     max_sec: Optional[float] = None,
     gank_filter: str = "all",
@@ -442,6 +444,14 @@ def get_killmails_page(
     if system_id is not None:
         where_clauses.append("k.solar_system_id = ?")
         params.append(system_id)
+
+    if min_isk_lost is not None:
+        where_clauses.append("k.total_value >= ?")
+        params.append(min_isk_lost)
+
+    if max_isk_lost is not None:
+        where_clauses.append("k.total_value <= ?")
+        params.append(max_isk_lost)
 
     if min_sec is not None:
         where_clauses.append("k.security_status >= ?")
@@ -496,6 +506,21 @@ def get_killmails_page(
     """
     rows = conn.execute(data_sql, params + [page_size, offset]).fetchall()
     return rows, total_count
+
+
+def get_isk_lost_bounds(conn: sqlite3.Connection) -> dict:
+    row = conn.execute(
+        """
+        SELECT
+            COALESCE(CAST(MIN(total_value) AS INTEGER), 0) AS min_isk_lost,
+            COALESCE(CAST(MAX(total_value) AS INTEGER), 0) AS max_isk_lost
+        FROM killmails
+        """
+    ).fetchone()
+    return {
+        "min_isk_lost": row["min_isk_lost"],
+        "max_isk_lost": row["max_isk_lost"],
+    }
 
 
 # ---------------------------------------------------------------------------
