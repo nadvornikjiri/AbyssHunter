@@ -55,6 +55,34 @@
           </label>
         </div>
 
+        {% set min_isk_bound = isk_lost_bounds.min_isk_lost %}
+        {% set max_isk_bound = isk_lost_bounds.max_isk_lost %}
+        {% set selected_min_isk = filters.min_isk_lost if filters.min_isk_lost is not none else min_isk_bound %}
+        {% set selected_max_isk = filters.max_isk_lost if filters.max_isk_lost is not none else max_isk_bound %}
+        <div class="isk-range" data-isk-range>
+          <label class="isk-range-header">ISK Lost</label>
+          <div class="isk-range-values">
+            <span data-isk-min-display>{{ selected_min_isk | isk }}</span>
+            <span data-isk-max-display>{{ selected_max_isk | isk }}</span>
+          </div>
+          <input type="range"
+                 id="min_isk_lost_slider"
+                 min="{{ min_isk_bound }}"
+                 max="{{ max_isk_bound }}"
+                 value="{{ selected_min_isk }}"
+                 step="1000000"
+                 {% if min_isk_bound == max_isk_bound %}disabled{% endif %}>
+          <input type="range"
+                 id="max_isk_lost_slider"
+                 min="{{ min_isk_bound }}"
+                 max="{{ max_isk_bound }}"
+                 value="{{ selected_max_isk }}"
+                 step="1000000"
+                 {% if min_isk_bound == max_isk_bound %}disabled{% endif %}>
+          <input type="hidden" name="min_isk_lost" id="min_isk_lost" value="{{ selected_min_isk }}">
+          <input type="hidden" name="max_isk_lost" id="max_isk_lost" value="{{ selected_max_isk }}">
+        </div>
+
         <label class="gank-check">
           <input type="checkbox" name="ganks_only" value="1"
                  {% if filters.ganks_only %}checked{% endif %}>
@@ -177,6 +205,52 @@
 </div>
 
 <script>
+
+function formatIsk(value) {
+  const v = Number(value || 0);
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}B`;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+  return `${Math.round(v)}`;
+}
+
+function setupIskRangeFilter() {
+  const container = document.querySelector('[data-isk-range]');
+  if (!container) return;
+
+  const minSlider = document.getElementById('min_isk_lost_slider');
+  const maxSlider = document.getElementById('max_isk_lost_slider');
+  const minHidden = document.getElementById('min_isk_lost');
+  const maxHidden = document.getElementById('max_isk_lost');
+  const minDisplay = container.querySelector('[data-isk-min-display]');
+  const maxDisplay = container.querySelector('[data-isk-max-display]');
+  if (!minSlider || !maxSlider || !minHidden || !maxHidden || !minDisplay || !maxDisplay) return;
+
+  const sync = () => {
+    let minValue = Number(minSlider.value);
+    let maxValue = Number(maxSlider.value);
+
+    if (minValue > maxValue) {
+      if (document.activeElement === minSlider) {
+        maxValue = minValue;
+        maxSlider.value = String(maxValue);
+      } else {
+        minValue = maxValue;
+        minSlider.value = String(minValue);
+      }
+    }
+
+    minHidden.value = String(minValue);
+    maxHidden.value = String(maxValue);
+    minDisplay.textContent = formatIsk(minValue);
+    maxDisplay.textContent = formatIsk(maxValue);
+  };
+
+  minSlider.addEventListener('input', sync);
+  maxSlider.addEventListener('input', sync);
+  sync();
+}
+
 function setupAutocomplete(inputId, hiddenId, endpoint, idField) {
   const input = document.getElementById(inputId);
   const hidden = document.getElementById(hiddenId);
@@ -228,5 +302,6 @@ function setupAutocomplete(inputId, hiddenId, endpoint, idField) {
 setupAutocomplete('item-name-input', 'item_id', '/api/type-search', 'type_id');
 setupAutocomplete('ship-name-input', 'ship_type_id', '/api/type-search', 'type_id');
 setupAutocomplete('system-name-input', 'system_id', '/api/system-search', 'system_id');
+setupIskRangeFilter();
 </script>
 {% endblock %}

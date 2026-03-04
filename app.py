@@ -172,6 +172,8 @@ def _parse_filters() -> dict:
         "item_id": _int("item_id"),
         "ship_type_id": _int("ship_type_id"),
         "system_id": _int("system_id"),
+        "min_isk_lost": _int("min_isk_lost"),
+        "max_isk_lost": _int("max_isk_lost"),
         "min_sec": _float("min_sec"),
         "max_sec": _float("max_sec"),
         "ganks_only": bool(request.args.get("ganks_only")),
@@ -199,12 +201,16 @@ def index():
         item_id=filters["item_id"],
         ship_type_id=filters["ship_type_id"],
         system_id=filters["system_id"],
+        min_isk_lost=filters["min_isk_lost"],
+        max_isk_lost=filters["max_isk_lost"],
         min_sec=filters["min_sec"],
         max_sec=filters["max_sec"],
         ganks_only=filters["ganks_only"],
         sort_by=filters["sort"],
         sort_dir=filters["order"],
     )
+
+    isk_lost_bounds = db.get_isk_lost_bounds(g.db)
     total_pages = max(1, math.ceil(total_count / config.PAGE_SIZE))
 
     # Resolve filter label names for display in the form
@@ -227,6 +233,7 @@ def index():
         total_count=total_count,
         total_pages=total_pages,
         filters=filters,
+        isk_lost_bounds=isk_lost_bounds,
         item_name=item_name,
         ship_name=ship_name,
         system_name=system_name,
