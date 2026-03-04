@@ -167,6 +167,15 @@ def _parse_filters() -> dict:
         order = "desc"
 
     page = max(1, _int("page") or 1)
+    gank_filter = request.args.get("gank_filter", "").strip().lower()
+    if gank_filter not in {"", "all", "confirmed", "candidate"}:
+        gank_filter = "all"
+    if request.args.get("ganks_only") and gank_filter in {"", "all"}:
+        # Backwards-compatibility with the old checkbox query param.
+        gank_filter = "confirmed"
+    if gank_filter == "":
+        gank_filter = "all"
+
     filters = {
         "page": page,
         "item_id": _int("item_id"),
@@ -174,7 +183,7 @@ def _parse_filters() -> dict:
         "system_id": _int("system_id"),
         "min_sec": _float("min_sec"),
         "max_sec": _float("max_sec"),
-        "ganks_only": bool(request.args.get("ganks_only")),
+        "gank_filter": gank_filter,
         "sort": sort,
         "order": order,
     }
@@ -201,7 +210,7 @@ def index():
         system_id=filters["system_id"],
         min_sec=filters["min_sec"],
         max_sec=filters["max_sec"],
-        ganks_only=filters["ganks_only"],
+        gank_filter=filters["gank_filter"],
         sort_by=filters["sort"],
         sort_dir=filters["order"],
     )

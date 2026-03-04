@@ -368,7 +368,7 @@ def get_killmails_page(
     system_id: Optional[int] = None,
     min_sec: Optional[float] = None,
     max_sec: Optional[float] = None,
-    ganks_only: bool = False,
+    gank_filter: str = "all",
     sort_by: str = "time",
     sort_dir: str = "desc",
 ) -> tuple:
@@ -405,8 +405,10 @@ def get_killmails_page(
         where_clauses.append("k.security_status <= ?")
         params.append(max_sec)
 
-    if ganks_only:
+    if gank_filter == "confirmed":
         where_clauses.append("k.is_confirmed_gank = 1")
+    elif gank_filter == "candidate":
+        where_clauses.append("k.is_gank_candidate = 1")
 
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
