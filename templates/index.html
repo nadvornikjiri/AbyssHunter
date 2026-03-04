@@ -75,6 +75,38 @@
           </label>
         </div>
 
+        {% set min_isk_bound = isk_lost_bounds.min_isk_lost %}
+        {% set max_isk_bound = isk_lost_bounds.max_isk_lost %}
+        {% set selected_min_isk = filters.min_isk_lost if filters.min_isk_lost is not none else min_isk_bound %}
+        {% set selected_max_isk = filters.max_isk_lost if filters.max_isk_lost is not none else max_isk_bound %}
+        <div class="isk-range" data-isk-range>
+          <label class="isk-range-header">ISK Lost</label>
+          <div class="isk-range-values">
+            <span data-isk-min-display>{{ selected_min_isk | isk }}</span>
+            <span data-isk-max-display>{{ selected_max_isk | isk }}</span>
+          </div>
+          <input type="range"
+                 id="min_isk_lost_slider"
+                 min="{{ min_isk_bound }}"
+                 max="{{ max_isk_bound }}"
+                 value="{{ selected_min_isk }}"
+                 step="1000000"
+                 {% if min_isk_bound == max_isk_bound %}disabled{% endif %}>
+          <input type="range"
+                 id="max_isk_lost_slider"
+                 min="{{ min_isk_bound }}"
+                 max="{{ max_isk_bound }}"
+                 value="{{ selected_max_isk }}"
+                 step="1000000"
+                 {% if min_isk_bound == max_isk_bound %}disabled{% endif %}>
+          <input type="hidden" name="min_isk_lost" id="min_isk_lost" value="{{ selected_min_isk }}">
+          <input type="hidden" name="max_isk_lost" id="max_isk_lost" value="{{ selected_max_isk }}">
+        </div>
+
+        <label class="gank-check">
+          <input type="checkbox" name="ganks_only" value="1"
+                 {% if filters.ganks_only %}checked{% endif %}>
+          Confirmed Ganks Only
         <label>
           Gank Status
           <select name="gank_filter">
@@ -200,18 +232,13 @@
 </div>
 
 <script>
-const FILTER_STORAGE_KEY = 'killlist:last-filters';
 
-function getStoredFilters() {
-  try {
-    return JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || '{}');
-  } catch (e) {
-    return {};
-  }
-}
-
-function hasQueryParam(name) {
-  return new URLSearchParams(window.location.search).has(name);
+function formatIsk(value) {
+  const v = Number(value || 0);
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}B`;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+  return `${Math.round(v)}`;
 }
 
 function restoreRememberedFilters() {
@@ -264,8 +291,9 @@ function rememberFiltersOnSubmit() {
       max_sec: maxSec?.value ?? ''
     };
 
-    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(payload));
-  });
+  minSlider.addEventListener('input', sync);
+  maxSlider.addEventListener('input', sync);
+  sync();
 }
 
 function setupAutocomplete(inputId, hiddenId, endpoint, idField, onSelect) {
@@ -371,6 +399,6 @@ setupMultiItemFilter();
 rememberFiltersOnSubmit();
 setupAutocomplete('ship-name-input', 'ship_type_id', '/api/type-search', 'type_id');
 setupAutocomplete('system-name-input', 'system_id', '/api/system-search', 'system_id');
-setupAutocomplete('character-name-input', 'character_id', '/api/character-search', 'character_id');
+setupIskRangeFilter();
 </script>
 {% endblock %}
