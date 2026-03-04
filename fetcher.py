@@ -1055,11 +1055,20 @@ def sync_kills_everef(
     ingest_pool = concurrent.futures.ThreadPoolExecutor(
         max_workers=n_ingest_workers, thread_name_prefix="everef-ingest"
     )
-    ingest_futures = [
-        ingest_pool.submit(_ingest_day, d, f)
-        for d, f in zip(dates, futures_in_order)
-    ]
-    ingest_pool.shutdown(wait=False)
+
+    # Keep ingestion workers bounded: never queue all days at once.
+    # This prevents large prepared row payloads from piling up in memory while
+    # the single DB writer thread drains results.
+    pending_days = list(zip(dates, futures_in_order))
+    in_flight: dict = {}
+
+    def _fill_ingest_queue() -> None:
+        while pending_days and len(in_flight) < n_ingest_workers:
+            d, f = pending_days.pop(0)
+            fut = ingest_pool.submit(_ingest_day, d, f)
+            in_flight[fut] = d
+
+    _fill_ingest_queue()
 
     # Rate tracking — ingestion
     ingest_records_done: int = 0  # total records ingested (for rate badge)
@@ -1069,9 +1078,17 @@ def sync_kills_everef(
 
     ingested_any = False
 
-    for date_str, ingest_future in zip(dates, ingest_futures):
+    while in_flight:
+        done, _ = concurrent.futures.wait(
+            in_flight.keys(),
+            return_when=concurrent.futures.FIRST_COMPLETED,
+        )
+        ingest_future = next(iter(done))
+        date_str = in_flight.pop(ingest_future)
+
         if _cancelled():
             ingest_future.cancel()
+            _fill_ingest_queue()
             continue
 
         date_str, n_bytes, total_kills, already_known, prepared = ingest_future.result()
@@ -1087,9 +1104,11 @@ def sync_kills_everef(
 
         if not prepared:
             _prog(ingest_done=ingest_days_done, message=f"{date_str}: no new kills")
+            _fill_ingest_queue()
             continue
 
         if _cancelled():
+            _fill_ingest_queue()
             continue
 
         # Bulk write: 4 executemany calls instead of ~90k individual INSERT calls
@@ -1126,6 +1145,10 @@ def sync_kills_everef(
             message=f"{date_str}: done ({len(prepared):,} kills ingested)",
         )
         logger.info("EVE Ref %s: %d kills committed", date_str, len(prepared))
+
+        _fill_ingest_queue()
+
+    ingest_pool.shutdown(wait=False)
 
     # Handle cancellation — mark done here so app.py _run() can check progress["cancelled"]
     if _cancelled():
