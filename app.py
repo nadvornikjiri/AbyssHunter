@@ -276,6 +276,7 @@ def index():
         kills=[dict(r) for r in rows],
         total_count=total_count,
         total_pages=total_pages,
+        isk_lost_bounds=isk_lost_bounds,
         filters=filters,
         item_names=item_names,
         ship_name=ship_name,

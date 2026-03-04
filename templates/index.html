@@ -233,6 +233,20 @@
 
 <script>
 
+const FILTER_STORAGE_KEY = 'abysshunter:index_filters';
+
+function hasQueryParam(key) {
+  return new URLSearchParams(window.location.search).has(key);
+}
+
+function getStoredFilters() {
+  try {
+    return JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+
 function formatIsk(value) {
   const v = Number(value || 0);
   if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}B`;
@@ -290,6 +304,41 @@ function rememberFiltersOnSubmit() {
       min_sec: minSec?.value ?? '',
       max_sec: maxSec?.value ?? ''
     };
+
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(payload));
+  });
+}
+
+function setupIskRangeFilter() {
+  const minSlider = document.getElementById('min_isk_lost_slider');
+  const maxSlider = document.getElementById('max_isk_lost_slider');
+  const minInput = document.getElementById('min_isk_lost');
+  const maxInput = document.getElementById('max_isk_lost');
+  const minDisplay = document.querySelector('[data-isk-min-display]');
+  const maxDisplay = document.querySelector('[data-isk-max-display]');
+
+  if (!minSlider || !maxSlider || !minInput || !maxInput || !minDisplay || !maxDisplay) {
+    return;
+  }
+
+  function sync() {
+    let minValue = Number(minSlider.value);
+    let maxValue = Number(maxSlider.value);
+    if (minValue > maxValue) {
+      if (document.activeElement === minSlider) {
+        maxValue = minValue;
+        maxSlider.value = String(maxValue);
+      } else {
+        minValue = maxValue;
+        minSlider.value = String(minValue);
+      }
+    }
+
+    minInput.value = String(minValue);
+    maxInput.value = String(maxValue);
+    minDisplay.textContent = formatIsk(minValue);
+    maxDisplay.textContent = formatIsk(maxValue);
+  }
 
   minSlider.addEventListener('input', sync);
   maxSlider.addEventListener('input', sync);
