@@ -158,6 +158,25 @@ def _parse_filters() -> dict:
         except ValueError:
             return None
 
+    def _int_list(key) -> list[int]:
+        values = []
+        for raw in request.args.getlist(key):
+            for part in raw.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                try:
+                    values.append(int(part))
+                except ValueError:
+                    continue
+        seen = set()
+        deduped = []
+        for value in values:
+            if value not in seen:
+                seen.add(value)
+                deduped.append(value)
+        return deduped
+
     _SORT_COLS = {"time", "system", "sec", "total_value", "dropped_value", "attackers"}
     sort = request.args.get("sort", "time")
     if sort not in _SORT_COLS:
@@ -165,6 +184,10 @@ def _parse_filters() -> dict:
     order = request.args.get("order", "desc")
     if order not in ("asc", "desc"):
         order = "desc"
+
+    item_match = request.args.get("item_match", "any").strip().lower()
+    if item_match not in {"any", "all"}:
+        item_match = "any"
 
     page = max(1, _int("page") or 1)
     gank_filter = request.args.get("gank_filter", "").strip().lower()
@@ -178,7 +201,8 @@ def _parse_filters() -> dict:
 
     filters = {
         "page": page,
-        "item_id": _int("item_id"),
+        "item_ids": _int_list("item_id"),
+        "item_match": item_match,
         "ship_type_id": _int("ship_type_id"),
         "character_id": _int("character_id"),
         "system_id": _int("system_id"),
@@ -189,8 +213,12 @@ def _parse_filters() -> dict:
         "order": order,
     }
     # Build a querystring without 'page', 'sort', 'order' for link generation
-    qs_params = {k: v for k, v in request.args.items() if k not in ("page", "sort", "order") and v}
-    filters["filter_qs"] = urlencode(qs_params)
+    qs_pairs = []
+    for key, value in request.args.items(multi=True):
+        if key in ("page", "sort", "order") or not value:
+            continue
+        qs_pairs.append((key, value))
+    filters["filter_qs"] = urlencode(qs_pairs)
     return filters
 
 
@@ -206,7 +234,8 @@ def index():
         g.db,
         page=filters["page"],
         page_size=config.PAGE_SIZE,
-        item_id=filters["item_id"],
+        item_ids=filters["item_ids"],
+        item_match=filters["item_match"],
         ship_type_id=filters["ship_type_id"],
         character_id=filters["character_id"],
         system_id=filters["system_id"],
@@ -219,13 +248,13 @@ def index():
     total_pages = max(1, math.ceil(total_count / config.PAGE_SIZE))
 
     # Resolve filter label names for display in the form
-    item_name = None
+    item_names = []
     ship_name = None
     system_name = None
     character_name = None
-    if filters["item_id"]:
-        row = db.get_cached_type(g.db, filters["item_id"])
-        item_name = row["name"] if row else str(filters["item_id"])
+    for item_id in filters["item_ids"]:
+        row = db.get_cached_type(g.db, item_id)
+        item_names.append({"id": item_id, "name": row["name"] if row else str(item_id)})
     if filters["ship_type_id"]:
         row = db.get_cached_type(g.db, filters["ship_type_id"])
         ship_name = row["name"] if row else str(filters["ship_type_id"])
@@ -242,7 +271,7 @@ def index():
         total_count=total_count,
         total_pages=total_pages,
         filters=filters,
-        item_name=item_name,
+        item_names=item_names,
         ship_name=ship_name,
         system_name=system_name,
         character_name=character_name,

@@ -398,7 +398,8 @@ def get_killmails_page(
     conn: sqlite3.Connection,
     page: int,
     page_size: int,
-    item_id: Optional[int] = None,
+    item_ids: Optional[list[int]] = None,
+    item_match: str = "any",
     ship_type_id: Optional[int] = None,
     character_id: Optional[int] = None,
     system_id: Optional[int] = None,
@@ -413,11 +414,19 @@ def get_killmails_page(
 
     where_clauses = []
 
-    if item_id is not None:
-        where_clauses.append(
-            "EXISTS (SELECT 1 FROM items i WHERE i.killmail_id = k.killmail_id AND i.item_type_id = ?)"
-        )
-        params.append(item_id)
+    if item_ids:
+        placeholders = ",".join("?" for _ in item_ids)
+        if item_match == "all":
+            where_clauses.extend(
+                "EXISTS (SELECT 1 FROM items i WHERE i.killmail_id = k.killmail_id AND i.item_type_id = ?)"
+                for _ in item_ids
+            )
+            params.extend(item_ids)
+        else:
+            where_clauses.append(
+                f"EXISTS (SELECT 1 FROM items i WHERE i.killmail_id = k.killmail_id AND i.item_type_id IN ({placeholders}))"
+            )
+            params.extend(item_ids)
 
     if ship_type_id is not None:
         where_clauses.append(
