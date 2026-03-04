@@ -63,7 +63,7 @@
 
         <div class="filter-buttons">
           <button type="submit">Apply</button>
-          <a href="/" role="button" class="secondary outline">Clear</a>
+          <a href="/?clear_filters=1" role="button" class="secondary outline">Clear</a>
         </div>
       </fieldset>
     </form>
@@ -177,6 +177,75 @@
 </div>
 
 <script>
+const FILTER_STORAGE_KEY = 'killlist:last-filters';
+
+function getStoredFilters() {
+  try {
+    return JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+
+function hasQueryParam(name) {
+  return new URLSearchParams(window.location.search).has(name);
+}
+
+function restoreRememberedFilters() {
+  if (hasQueryParam('clear_filters')) {
+    localStorage.removeItem(FILTER_STORAGE_KEY);
+    return;
+  }
+
+  const stored = getStoredFilters();
+
+  const itemInput = document.getElementById('item-name-input');
+  const itemId = document.getElementById('item_id');
+  const minSec = document.querySelector('input[name="min_sec"]');
+  const maxSec = document.querySelector('input[name="max_sec"]');
+  const ganksOnly = document.querySelector('input[name="ganks_only"]');
+
+  if (itemInput && itemId && !hasQueryParam('item_id') && stored.item_id) {
+    itemInput.value = stored.item_name || '';
+    itemId.value = stored.item_id;
+  }
+
+  if (minSec && !hasQueryParam('min_sec') && stored.min_sec !== undefined) {
+    minSec.value = stored.min_sec;
+  }
+
+  if (maxSec && !hasQueryParam('max_sec') && stored.max_sec !== undefined) {
+    maxSec.value = stored.max_sec;
+  }
+
+  if (ganksOnly && !hasQueryParam('ganks_only')) {
+    ganksOnly.checked = !!stored.ganks_only;
+  }
+}
+
+function rememberFiltersOnSubmit() {
+  const form = document.querySelector('.filters-panel form');
+  if (!form) return;
+
+  form.addEventListener('submit', () => {
+    const itemInput = document.getElementById('item-name-input');
+    const itemId = document.getElementById('item_id');
+    const minSec = form.querySelector('input[name="min_sec"]');
+    const maxSec = form.querySelector('input[name="max_sec"]');
+    const ganksOnly = form.querySelector('input[name="ganks_only"]');
+
+    const payload = {
+      item_name: itemInput?.value?.trim() || '',
+      item_id: itemId?.value || '',
+      min_sec: minSec?.value ?? '',
+      max_sec: maxSec?.value ?? '',
+      ganks_only: !!ganksOnly?.checked
+    };
+
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(payload));
+  });
+}
+
 function setupAutocomplete(inputId, hiddenId, endpoint, idField) {
   const input = document.getElementById(inputId);
   const hidden = document.getElementById(hiddenId);
@@ -224,6 +293,9 @@ function setupAutocomplete(inputId, hiddenId, endpoint, idField) {
     }
   });
 }
+
+restoreRememberedFilters();
+rememberFiltersOnSubmit();
 
 setupAutocomplete('item-name-input', 'item_id', '/api/type-search', 'type_id');
 setupAutocomplete('ship-name-input', 'ship_type_id', '/api/type-search', 'type_id');
