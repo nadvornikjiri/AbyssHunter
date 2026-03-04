@@ -134,6 +134,21 @@
 .gank-notice.confirmed { background: rgba(192,57,43,0.2); border-left: 3px solid #c0392b; }
 .gank-notice.candidate { background: rgba(127,96,0,0.2);  border-left: 3px solid #c8a951; }
 
+.eft-export {
+  margin-top: 0.8rem;
+}
+.eft-export small {
+  margin-left: 0.5rem;
+  color: var(--pico-muted-color);
+}
+#eft-export-text {
+  margin-top: 0.5rem;
+  min-height: 180px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.8rem;
+  white-space: pre;
+}
+
 .info-table { width: auto; }
 .info-table th { width: 140px; color: var(--pico-muted-color); font-weight: normal; }
 

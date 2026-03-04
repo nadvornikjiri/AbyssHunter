@@ -41,6 +41,12 @@
         &#x26A0; Possible gank (highsec, criminal attacker detected — CONCORD response not yet confirmed in DB)
       </p>
     {% endif %}
+
+    <div class="eft-export">
+      <button id="copy-eft-btn" class="secondary" type="button">Copy EFT</button>
+      <small id="copy-eft-status" aria-live="polite"></small>
+      <textarea id="eft-export-text" readonly>{{ eft_export }}</textarea>
+    </div>
   </header>
 
   <!-- Victim -->
@@ -198,4 +204,24 @@
     </small>
   </footer>
 </article>
+
+<script>
+  (() => {
+    const button = document.getElementById('copy-eft-btn');
+    const status = document.getElementById('copy-eft-status');
+    const textarea = document.getElementById('eft-export-text');
+    if (!button || !status || !textarea) return;
+
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(textarea.value);
+        status.textContent = 'Copied. Paste directly into pyfa.';
+      } catch (_) {
+        textarea.focus();
+        textarea.select();
+        status.textContent = 'Clipboard blocked. Press Ctrl/Cmd+C to copy.';
+      }
+    });
+  })();
+</script>
 {% endblock %}
