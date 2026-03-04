@@ -66,10 +66,13 @@
           </label>
         </div>
 
-        <label class="gank-check">
-          <input type="checkbox" name="ganks_only" value="1"
-                 {% if filters.ganks_only %}checked{% endif %}>
-          Confirmed Ganks Only
+        <label>
+          Gank Status
+          <select name="gank_filter">
+            <option value="all" {% if filters.gank_filter == 'all' %}selected{% endif %}>All kills</option>
+            <option value="confirmed" {% if filters.gank_filter == 'confirmed' %}selected{% endif %}>Confirmed ganks only</option>
+            <option value="candidate" {% if filters.gank_filter == 'candidate' %}selected{% endif %}>Candidates only</option>
+          </select>
         </label>
 
         <div class="filter-buttons">
