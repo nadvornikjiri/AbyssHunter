@@ -40,7 +40,10 @@
         skipped automatically. Data available back to 2007.
       </small>
     </p>
-    <button type="submit">&#x21BB; Bulk Download</button>
+    <div class="sync-actions">
+      <button type="submit" name="sync_action" value="bulk">&#x21BB; Bulk Download</button>
+      <button type="submit" name="sync_action" value="gank_only" class="secondary">Run Gank Detection Only</button>
+    </div>
   </form>
 
   <hr>
@@ -64,3 +67,4 @@
   </div>
 </article>
 {% endblock %}
+

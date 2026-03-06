@@ -3,7 +3,7 @@ import os
 import sqlite3
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import config
 
@@ -104,6 +104,7 @@ def _connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -306,10 +307,15 @@ def get_cached_type(conn: sqlite3.Connection, type_id: int) -> Optional[sqlite3.
 def get_uncached_type_ids(conn: sqlite3.Connection, type_ids: list) -> list:
     if not type_ids:
         return []
-    placeholders = ",".join("?" * len(type_ids))
-    cached = conn.execute(
-        f"SELECT type_id FROM type_cache WHERE type_id IN ({placeholders})", type_ids
-    ).fetchall()
+    # Keep every query below SQLite's variable limit.
+    chunk_size = 900
+    cached = []
+    for i in range(0, len(type_ids), chunk_size):
+        chunk = type_ids[i:i + chunk_size]
+        placeholders = ",".join("?" * len(chunk))
+        cached.extend(conn.execute(
+            f"SELECT type_id FROM type_cache WHERE type_id IN ({placeholders})", chunk
+        ).fetchall())
     cached_set = {row["type_id"] for row in cached}
     return [t for t in type_ids if t not in cached_set]
 
@@ -361,10 +367,15 @@ def get_cached_character(conn: sqlite3.Connection, character_id: int) -> Optiona
 def get_uncached_character_ids(conn: sqlite3.Connection, character_ids: list) -> list:
     if not character_ids:
         return []
-    placeholders = ",".join("?" * len(character_ids))
-    cached = conn.execute(
-        f"SELECT character_id FROM character_cache WHERE character_id IN ({placeholders})", character_ids
-    ).fetchall()
+    # Keep every query below SQLite's variable limit.
+    chunk_size = 900
+    cached = []
+    for i in range(0, len(character_ids), chunk_size):
+        chunk = character_ids[i:i + chunk_size]
+        placeholders = ",".join("?" * len(chunk))
+        cached.extend(conn.execute(
+            f"SELECT character_id FROM character_cache WHERE character_id IN ({placeholders})", chunk
+        ).fetchall())
     cached_set = {row["character_id"] for row in cached}
     return [c for c in character_ids if c not in cached_set]
 
@@ -401,8 +412,11 @@ def get_killmails_page(
     item_ids: Optional[list[int]] = None,
     item_match: str = "any",
     ship_type_id: Optional[int] = None,
+    exclude_ship_type_id: Optional[int] = None,
     character_id: Optional[int] = None,
+    exclude_character_id: Optional[int] = None,
     system_id: Optional[int] = None,
+    exclude_system_id: Optional[int] = None,
     min_isk_lost: Optional[int] = None,
     max_isk_lost: Optional[int] = None,
     min_sec: Optional[float] = None,
@@ -453,6 +467,30 @@ def get_killmails_page(
     if system_id is not None:
         where_clauses.append("k.solar_system_id = ?")
         params.append(system_id)
+
+    if exclude_ship_type_id is not None:
+        where_clauses.append(
+            """NOT (
+                EXISTS (SELECT 1 FROM victims v WHERE v.killmail_id = k.killmail_id AND v.ship_type_id = ?)
+                OR
+                EXISTS (SELECT 1 FROM attackers a WHERE a.killmail_id = k.killmail_id AND a.ship_type_id = ?)
+            )"""
+        )
+        params.extend([exclude_ship_type_id, exclude_ship_type_id])
+
+    if exclude_character_id is not None:
+        where_clauses.append(
+            """NOT (
+                EXISTS (SELECT 1 FROM victims v WHERE v.killmail_id = k.killmail_id AND v.character_id = ?)
+                OR
+                EXISTS (SELECT 1 FROM attackers a WHERE a.killmail_id = k.killmail_id AND a.character_id = ?)
+            )"""
+        )
+        params.extend([exclude_character_id, exclude_character_id])
+
+    if exclude_system_id is not None:
+        where_clauses.append("k.solar_system_id != ?")
+        params.append(exclude_system_id)
 
     if min_isk_lost is not None:
         where_clauses.append("k.total_value >= ?")
@@ -789,6 +827,67 @@ def bulk_find_ganked_kills(
     ).fetchall()
 
 
+
+
+def bulk_find_ganked_kills_for_day(
+    conn: sqlite3.Connection,
+    date_str: str,
+    window: int,
+    min_value: float,
+    pod_type_ids: frozenset,
+) -> list:
+    """
+    Day-scoped variant of bulk_find_ganked_kills.
+
+    Restricts CONCORD response kills to one UTC day so phase 2 can run
+    incrementally during ingestion.
+    """
+    pod1, pod2 = sorted(pod_type_ids)[:2]
+    day_start = f"{date_str}T00:00:00"
+    next_day = (datetime.fromisoformat(date_str) + timedelta(days=1)).strftime("%Y-%m-%d")
+    day_end = f"{next_day}T00:00:00"
+
+    return conn.execute(
+        """
+        WITH concord_kills AS (
+            SELECT k.killmail_id   AS concord_kill_id,
+                   k.solar_system_id,
+                   k.killmail_time AS concord_kill_time,
+                   v.character_id  AS ganker_character_id
+            FROM   killmails k
+            JOIN   attackers a ON a.killmail_id = k.killmail_id AND a.is_concord = 1
+            JOIN   victims   v ON v.killmail_id = k.killmail_id
+            WHERE  v.character_id IS NOT NULL
+              AND  k.killmail_time >= ?
+              AND  k.killmail_time <  ?
+        ),
+        candidates AS (
+            SELECT ck.concord_kill_id,
+                   k.killmail_id AS victim_kill_id
+            FROM   concord_kills ck
+            JOIN   attackers a ON a.character_id = ck.ganker_character_id
+            JOIN   killmails k ON k.killmail_id  = a.killmail_id
+            JOIN   victims   v ON v.killmail_id  = k.killmail_id
+            WHERE  k.solar_system_id              = ck.solar_system_id
+              AND  k.killmail_id                 <  ck.concord_kill_id
+              AND  (ck.concord_kill_id - k.killmail_id) <= ?
+              AND  k.is_confirmed_gank            = 0
+              AND  k.total_value                 >= ?
+              AND  v.ship_type_id NOT IN (?, ?)
+              AND  substr(k.killmail_time, 1, 10) = substr(ck.concord_kill_time, 1, 10)
+              AND  NOT EXISTS (
+                       SELECT 1 FROM attackers ca
+                       WHERE  ca.killmail_id = k.killmail_id
+                         AND  ca.is_concord  = 1
+                   )
+        )
+        SELECT concord_kill_id,
+               MAX(victim_kill_id) AS victim_kill_id
+        FROM   candidates
+        GROUP  BY concord_kill_id
+        """,
+        (day_start, day_end, window, min_value, pod1, pod2),
+    ).fetchall()
 # ---------------------------------------------------------------------------
 # Admin helpers
 # ---------------------------------------------------------------------------
@@ -863,3 +962,4 @@ def search_character_cache(conn: sqlite3.Connection, query: str, limit: int = 20
         "SELECT character_id, name FROM character_cache WHERE name LIKE ? ORDER BY name LIMIT ?",
         (f"%{query}%", limit),
     ).fetchall()
+

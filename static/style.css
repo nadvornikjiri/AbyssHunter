@@ -86,6 +86,7 @@
 .kill-table { font-size: 0.85rem; }
 .kill-table th { white-space: nowrap; }
 .kill-table td { white-space: nowrap; }
+.kill-table td.quick-filterable { cursor: context-menu; }
 
 /* Sortable column headers */
 .kill-table th.sortable { padding: 0; }
@@ -102,28 +103,47 @@
 .sort-arrow      { margin-left: 0.25em; font-size: 0.75em; opacity: 0.9; }
 .sort-arrow.muted { opacity: 0.25; }
 
-.th-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
+.column-context-menu,
+.value-context-menu {
+  position: fixed;
+  z-index: 2000;
+  display: grid;
+  gap: 0.2rem;
+  min-width: 170px;
+  padding: 0.3rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--pico-muted-border-color);
+  background: var(--pico-card-background-color);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
 }
 
-.th-controls > span {
-  padding: var(--pico-table-cell-padding-block) 0;
+.column-context-menu[hidden],
+.value-context-menu[hidden] {
+  display: none;
 }
 
-.group-toggle {
+.column-context-menu button,
+.value-context-menu button {
   margin: 0;
-  padding: 0.15rem 0.4rem;
-  font-size: 0.7rem;
-  line-height: 1.2;
+  width: 100%;
+  padding: 0.25rem 0.45rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 0.78rem;
 }
 
-.group-toggle.active {
-  background: var(--pico-primary-background);
-  border-color: var(--pico-primary-border);
-  color: var(--pico-primary-inverse);
+.column-context-menu button:hover:not(:disabled),
+.value-context-menu button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pico-primary) 18%, transparent);
+}
+
+.column-context-menu button:disabled,
+.value-context-menu button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .group-row td {
@@ -322,3 +342,4 @@
 
 /* List header */
 .list-header { display: flex; justify-content: space-between; align-items: center; }
+

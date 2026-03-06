@@ -516,7 +516,18 @@ def sync_kills_batch(conn, days_back: int = 1) -> dict:
 
     Returns summary dict with fetched/new/ingested/skipped/errors counts.
     """
-    summary = {"fetched": 0, "new": 0, "ingested": 0, "skipped": 0, "errors": 0}
+    summary = {
+        "fetched": 0,
+        "new": 0,
+        "ingested": 0,
+        "skipped": 0,
+        "errors": 0,
+        "gank_summary": {
+            "concord_kills_checked": 0,
+            "newly_confirmed": 0,
+            "already_confirmed": 0,
+        },
+    }
 
     # 1. Fetch stubs from zKillboard
     logger.info("Fetching zKillboard history for past %d day(s)...", days_back)
@@ -808,7 +819,7 @@ def _parse_everef_archive(data: bytes, date_str: str) -> list:
 _DL_CHUNK = 1 << 18  # 256 KB read buffer
 
 
-def _download_everef_day(date_str: str, file_progress: Optional[dict] = None) -> tuple:
+def _download_everef_day(date_str: str, file_progress: Optional[dict] = None, cancel_event=None) -> tuple:
     """
     Download and parse one EVE Ref daily archive using a single connection.
 
@@ -817,10 +828,10 @@ def _download_everef_day(date_str: str, file_progress: Optional[dict] = None) ->
 
     file_progress: shared dict updated in-place; key is date_str, value is
         {"bytes_done": int, "bytes_total": int, "done": bool}.
-        Safe to call from threads — only this thread writes to its own key.
+        Safe to call from threads - only this thread writes to its own key.
 
     Returns (killmails: list, bytes_downloaded: int).
-    Returns ([], 0) on 404 (future/missing date) or error.
+    Returns ([], 0) on cancellation, 404 (future/missing date), or error.
     """
     year = date_str[:4]
     url = f"{EVEREF_BASE}/{year}/killmails-{date_str}.tar.bz2"
@@ -828,6 +839,9 @@ def _download_everef_day(date_str: str, file_progress: Optional[dict] = None) ->
 
     if file_progress is not None:
         file_progress[date_str] = {"bytes_done": 0, "bytes_total": 0, "done": False}
+
+    def _cancelled() -> bool:
+        return cancel_event is not None and cancel_event.is_set()
 
     req = urllib.request.Request(url, headers={"User-Agent": config.USER_AGENT})
     try:
@@ -839,6 +853,11 @@ def _download_everef_day(date_str: str, file_progress: Optional[dict] = None) ->
             chunks = []
             bytes_done = 0
             while True:
+                if _cancelled():
+                    if file_progress is not None:
+                        file_progress[date_str]["done"] = True
+                    logger.info("EVE Ref: download cancelled for %s", date_str)
+                    return [], 0
                 chunk = resp.read(_DL_CHUNK)
                 if not chunk:
                     break
@@ -849,11 +868,17 @@ def _download_everef_day(date_str: str, file_progress: Optional[dict] = None) ->
 
             data = b"".join(chunks)
 
+            if _cancelled():
+                if file_progress is not None:
+                    file_progress[date_str]["done"] = True
+                logger.info("EVE Ref: download cancelled after transfer for %s", date_str)
+                return [], 0
+
     except urllib.error.HTTPError as e:
         if file_progress is not None:
             file_progress[date_str]["done"] = True
         if e.code == 404:
-            logger.info("EVE Ref: no archive for %s (404 — future or missing date)", date_str)
+            logger.info("EVE Ref: no archive for %s (404 - future or missing date)", date_str)
             return [], 0
         logger.error("EVE Ref: HTTP %s for %s", e.code, date_str)
         return [], 0
@@ -867,8 +892,12 @@ def _download_everef_day(date_str: str, file_progress: Optional[dict] = None) ->
     logger.info("EVE Ref: %.1f MB downloaded for %s, extracting...", n_bytes / 1024 / 1024, date_str)
     if file_progress is not None:
         file_progress[date_str].update({"bytes_done": n_bytes, "bytes_total": n_bytes, "done": True})
-    return _parse_everef_archive(data, date_str), n_bytes
 
+    if _cancelled():
+        logger.info("EVE Ref: cancelled before parse for %s", date_str)
+        return [], 0
+
+    return _parse_everef_archive(data, date_str), n_bytes
 
 def _prepare_kill_rows(km: dict, prices: dict, system_sec_map: dict) -> dict:
     """
@@ -974,7 +1003,18 @@ def sync_kills_everef(
     progress: optional dict updated in-place for live status reporting.
     Returns summary dict with fetched/new/ingested/skipped/errors counts.
     """
-    summary = {"fetched": 0, "new": 0, "ingested": 0, "skipped": 0, "errors": 0}
+    summary = {
+        "fetched": 0,
+        "new": 0,
+        "ingested": 0,
+        "skipped": 0,
+        "errors": 0,
+        "gank_summary": {
+            "concord_kills_checked": 0,
+            "newly_confirmed": 0,
+            "already_confirmed": 0,
+        },
+    }
 
     def _cancelled() -> bool:
         return cancel_event is not None and cancel_event.is_set()
@@ -1007,6 +1047,61 @@ def sync_kills_everef(
     all_type_ids: set = set()
     all_character_ids: set = set()
 
+    # Run phase-2 gank detection incrementally per ingested day, in parallel
+    # with remaining ingestion work.
+    gank_workers = max(1, min(len(dates), getattr(config, "GANK_PARALLEL_WORKERS", 1)))
+    gank_pool = concurrent.futures.ThreadPoolExecutor(
+        max_workers=gank_workers, thread_name_prefix="gank-phase2"
+    )
+    gank_in_flight: dict = {}
+    gank_days_submitted = 0
+    gank_days_done = 0
+
+    def _run_gank_for_day(day: str) -> tuple[str, dict]:
+        with db.get_db_ctx() as gank_conn:
+            result = gank.run_phase2_gank_detection_for_day(gank_conn, date_str=day)
+        return day, result
+
+    def _submit_gank_day(day: str) -> None:
+        nonlocal gank_days_submitted
+        fut = gank_pool.submit(_run_gank_for_day, day)
+        gank_in_flight[fut] = day
+        gank_days_submitted += 1
+        _prog(
+            gank_phase="running",
+            gank_total=gank_days_submitted,
+            gank_done=gank_days_done,
+            gank_confirmed=summary["gank_summary"]["newly_confirmed"],
+            gank_checked=summary["gank_summary"]["concord_kills_checked"],
+        )
+
+    def _drain_gank_done(wait: bool = False) -> None:
+        nonlocal gank_days_done
+        if not gank_in_flight:
+            return
+        done, _ = concurrent.futures.wait(
+            gank_in_flight.keys(),
+            timeout=None if wait else 0,
+            return_when=concurrent.futures.ALL_COMPLETED if wait else concurrent.futures.FIRST_COMPLETED,
+        )
+        for fut in done:
+            day = gank_in_flight.pop(fut)
+            try:
+                _, res = fut.result()
+                summary["gank_summary"]["concord_kills_checked"] += int(res.get("concord_kills_checked", 0))
+                summary["gank_summary"]["newly_confirmed"] += int(res.get("newly_confirmed", 0))
+                summary["gank_summary"]["already_confirmed"] += int(res.get("already_confirmed", 0))
+            except Exception:
+                logger.exception("Incremental gank detection failed for %s", day)
+                summary["errors"] += 1
+            gank_days_done += 1
+            _prog(
+                gank_phase="running",
+                gank_total=gank_days_submitted,
+                gank_done=gank_days_done,
+                gank_confirmed=summary["gank_summary"]["newly_confirmed"],
+                gank_checked=summary["gank_summary"]["concord_kills_checked"],
+            )
     # -----------------------------------------------------------------------
     # Stage 1: download all archives in parallel (EVEREF_DL_CONNECTIONS workers).
     # Stage 2: prepare rows in parallel (EVEREF_INGEST_WORKERS workers) — each
@@ -1042,7 +1137,7 @@ def sync_kills_everef(
     dl_pool = concurrent.futures.ThreadPoolExecutor(
         max_workers=n_dl_workers, thread_name_prefix="everef-dl"
     )
-    dl_fn = functools.partial(_download_everef_day, file_progress=dl_file_progress)
+    dl_fn = functools.partial(_download_everef_day, file_progress=dl_file_progress, cancel_event=cancel_event)
     futures_in_order = [dl_pool.submit(dl_fn, d) for d in dates]
     dl_pool.shutdown(wait=False)
 
@@ -1050,11 +1145,24 @@ def sync_kills_everef(
         """
         Ingest worker: block until the download future resolves, filter out
         already-known kills, and build row tuples from in-memory dicts.
-        Read-only access to shared objects — safe to run concurrently.
+        Read-only access to shared objects - safe to run concurrently.
         Updates ingest_day_progress[date_str] in real-time.
         Returns (date_str, n_bytes, total_kills, already_known, prepared_rows).
         """
+        if _cancelled():
+            return date_str, 0, 0, 0, []
+
+        while True:
+            if _cancelled():
+                return date_str, 0, 0, 0, []
+            if dl_future.done():
+                break
+            time.sleep(0.1)
+
         kills, n_bytes = dl_future.result()
+        if _cancelled():
+            return date_str, 0, 0, 0, []
+
         new_kills = [km for km in kills if km["killmail_id"] not in known_ids]
         already_known = len(kills) - len(new_kills)
 
@@ -1072,6 +1180,8 @@ def sync_kills_everef(
         step = max(1, len(new_kills) // 100)  # up to 100 progress updates per day
         prepared = []
         for i, km in enumerate(new_kills):
+            if _cancelled():
+                return date_str, n_bytes, len(kills), already_known, []
             prepared.append(fn(km))
             if (i + 1) % step == 0:
                 ingest_day_progress[date_str]["kills_done"] = i + 1
@@ -1106,10 +1216,20 @@ def sync_kills_everef(
     ingested_any = False
 
     while in_flight:
+        _drain_gank_done(wait=False)
         done, _ = concurrent.futures.wait(
             in_flight.keys(),
+            timeout=0.25,
             return_when=concurrent.futures.FIRST_COMPLETED,
         )
+
+        if not done:
+            if _cancelled():
+                for fut in list(in_flight.keys()):
+                    fut.cancel()
+                break
+            continue
+
         ingest_future = next(iter(done))
         date_str = in_flight.pop(ingest_future)
 
@@ -1149,6 +1269,7 @@ def sync_kills_everef(
         db.bulk_insert_items    (conn, [r for p in prepared for r in p["item_rows"]])
         conn.commit()
         ingest_day_progress[date_str]["done"] = True
+        _submit_gank_day(date_str)
 
         for p in prepared:
             all_type_ids |= p["type_ids"]
@@ -1187,8 +1308,19 @@ def sync_kills_everef(
             "sync_kills_everef cancelled: ingested=%d skipped=%d so far",
             summary["ingested"], summary["skipped"],
         )
+        gank_pool.shutdown(wait=False)
         return summary
 
+    # Wait for all incremental gank tasks to finish before final summary.
+    _drain_gank_done(wait=True)
+    gank_pool.shutdown(wait=False)
+    _prog(
+        gank_phase="done",
+        gank_total=gank_days_submitted,
+        gank_done=gank_days_done,
+        gank_confirmed=summary["gank_summary"]["newly_confirmed"],
+        gank_checked=summary["gank_summary"]["concord_kills_checked"],
+    )
     if ingested_any and all_type_ids:
         _prog(
             phase="resolving_types",

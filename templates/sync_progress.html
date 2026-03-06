@@ -8,25 +8,29 @@
   </header>
 
   <div id="progress-section">
-    <p id="status-msg">Starting…</p>
+    <p id="status-msg">Starting...</p>
 
-    <label>Download progress (overall)</label>
-    <progress id="dl-bar" max="1"></progress>
-    <div class="progress-stats">
-      <span id="dl-label"></span>
-      <span id="dl-rate" class="rate-badge"></span>
+    <div id="download-section">
+      <label>Download progress (overall)</label>
+      <progress id="dl-bar" max="1"></progress>
+      <div class="progress-stats">
+        <span id="dl-label"></span>
+        <span id="dl-rate" class="rate-badge"></span>
+      </div>
+      <div id="dl-file-bars"></div>
     </div>
-    <div id="dl-file-bars"></div>
 
     <br>
 
-    <label>Ingestion progress (overall)</label>
-    <progress id="ingest-bar" max="1"></progress>
-    <div class="progress-stats">
-      <span id="ingest-label"></span>
-      <span id="ingest-rate" class="rate-badge"></span>
+    <div id="ingestion-section">
+      <label>Ingestion progress (overall)</label>
+      <progress id="ingest-bar" max="1"></progress>
+      <div class="progress-stats">
+        <span id="ingest-label"></span>
+        <span id="ingest-rate" class="rate-badge"></span>
+      </div>
+      <div id="ingest-day-bars"></div>
     </div>
-    <div id="ingest-day-bars"></div>
 
     <br>
 
@@ -64,6 +68,8 @@
   const cancelUrl = {{ url_for('sync_cancel', job_id=job_id) | tojson }};
 
   const statusMsg   = document.getElementById('status-msg');
+  const downloadSection = document.getElementById('download-section');
+  const ingestionSection = document.getElementById('ingestion-section');
   const dlBar       = document.getElementById('dl-bar');
   const dlLabel     = document.getElementById('dl-label');
   const dlRate      = document.getElementById('dl-rate');
@@ -193,6 +199,8 @@
     try { await fetch(cancelUrl, { method: 'POST' }); } catch (_) {}
   }
 
+  let gankOnlyUiApplied = false;
+
   async function poll() {
     let data;
     try {
@@ -201,6 +209,13 @@
     } catch (e) {
       setTimeout(poll, 1000);
       return;
+    }
+
+    const isGankOnly = data.job_mode === 'gank_only';
+    if (!gankOnlyUiApplied && isGankOnly) {
+      if (downloadSection) downloadSection.style.display = 'none';
+      if (ingestionSection) ingestionSection.style.display = 'none';
+      gankOnlyUiApplied = true;
     }
 
     // Per-file download bars
@@ -255,12 +270,12 @@
       gankBar.max   = 1;
       gankBar.value = 1;
       gankLabel.textContent = `${fmt(data.gank_confirmed || 0)} confirmed gank(s)` +
-        (data.gank_checked ? ` · ${fmt(data.gank_checked)} CONCORD kills checked` : '');
+        (data.gank_checked ? ` · ${fmt(data.gank_checked)} gank candidates checked` : '');
     } else if (gankPhase === 'running') {
       if (gankTotal > 0) {
         gankBar.max   = gankTotal;
         gankBar.value = gankDone;
-        gankLabel.textContent = `${fmt(gankDone)} / ${fmt(gankTotal)} candidate pairs`;
+        gankLabel.textContent = `${fmt(gankDone)} / ${fmt(gankTotal)} gank candidates checked`;
       } else {
         gankBar.removeAttribute('value');
         gankLabel.textContent = 'Querying CONCORD matches…';
@@ -287,12 +302,18 @@
       } else {
         const s = data.summary || {};
         const g = data.gank_summary || {};
-        document.getElementById('summary-box').innerHTML =
-          `<strong>Done.</strong> ` +
-          `${fmt(s.fetched || 0)} killmails in archives &mdash; ` +
-          `${fmt(s.ingested || 0)} ingested, ${fmt(s.skipped || 0)} skipped, ${s.errors || 0} errors.<br>` +
-          `Gank detection: ${g.newly_confirmed || 0} confirmed` +
-          (g.concord_kills_checked ? ` (${fmt(g.concord_kills_checked)} CONCORD kills checked)` : '') + `.`;
+        if (isGankOnly) {
+          document.getElementById('summary-box').innerHTML =
+            `<strong>Done.</strong> Gank detection: ${g.newly_confirmed || 0} confirmed` +
+            (g.checked_candidates ? ` (${fmt(g.checked_candidates)} / ${fmt(g.total_candidates || g.checked_candidates)} candidates checked)` : '') + `.`;
+        } else {
+          document.getElementById('summary-box').innerHTML =
+            `<strong>Done.</strong> ` +
+            `${fmt(s.fetched || 0)} killmails in archives &mdash; ` +
+            `${fmt(s.ingested || 0)} ingested, ${fmt(s.skipped || 0)} skipped, ${s.errors || 0} errors.<br>` +
+            `Gank detection: ${g.newly_confirmed || 0} confirmed` +
+            (g.concord_kills_checked ? ` (${fmt(g.concord_kills_checked)} gank candidates checked)` : '') + `.`;
+        }
         document.getElementById('done-section').style.display = '';
       }
       return;
@@ -305,3 +326,4 @@
 })();
 </script>
 {% endblock %}
+

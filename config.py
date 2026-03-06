@@ -21,10 +21,11 @@ GANK_TIME_WINDOW_S  = 120    # kept for legacy; Phase 2 now uses killmail_id pro
 CRIMINAL_SEC_STATUS = -5.0   # kept for reference; Phase 1 no longer filters on this
 GANK_MIN_VALUE      = 1_000_000  # victim kill must be worth at least 1M ISK (per zKillboard)
 GANK_KILL_ID_WINDOW = 500    # max killmail_id gap between victim kill and CONCORD response
+GANK_PARALLEL_WORKERS = 4  # incremental phase-2 workers during ingestion
 POD_TYPE_IDS        = frozenset({670, 33328})  # Capsule, Capsule - Genolution 'Auroral'
 
 # Pagination
-PAGE_SIZE = 50
+PAGE_SIZE = 100
 ISK_LOST_FILTER_MAX = 20_000_000_000  # 20B ISK hard cap for the max ISK-lost filter
 
 # Security class thresholds (raw ESI float values)
@@ -35,3 +36,4 @@ LOWSEC_MIN  = 0.1
 USER_AGENT = "EveKillmailBrowser/1.0 (github.com/user/eve-killmail-browser)"
 
 DB_PATH = "killmails.db"
+

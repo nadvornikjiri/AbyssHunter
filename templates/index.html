@@ -196,33 +196,19 @@
         <thead>
           <tr>
             {{ sort_th('Time (UTC)', 'time') }}
-            <th class="sortable{% if filters.sort == 'system' %} sort-active{% endif %}" data-group-col="system">
-              <div class="th-controls">
-                <a href="?{{ filters.filter_qs }}{% if filters.filter_qs %}&{% endif %}sort=system&order={{ 'asc' if (filters.sort == 'system' and filters.order == 'desc') else 'desc' }}">
-                  System
-                  {% if filters.sort == 'system' %}
-                    <span class="sort-arrow">{{ '▲' if filters.order == 'asc' else '▼' }}</span>
-                  {% else %}
-                    <span class="sort-arrow muted">⇅</span>
-                  {% endif %}
-                </a>
-                {% set next_group = '' if filters.group_by == 'system' else 'system' %}
-                <a role="button" class="group-toggle{% if filters.group_by == 'system' %} active{% endif %}" href="?{{ filters.filter_qs }}{% if filters.filter_qs %}&{% endif %}sort=system&order={{ filters.order }}{% if next_group %}&group_by={{ next_group }}{% endif %}">
-                  {{ 'Ungroup' if filters.group_by == 'system' else 'Group' }}
-                </a>
-              </div>
+            <th class="sortable{% if filters.sort == 'system' %} sort-active{% endif %}" data-group-col="system" data-group-label="System">
+              <a href="?{{ filters.filter_qs }}{% if filters.filter_qs %}&{% endif %}sort=system&order={{ 'asc' if (filters.sort == 'system' and filters.order == 'desc') else 'desc' }}">
+                System
+                {% if filters.sort == 'system' %}
+                  <span class="sort-arrow">{{ '▲' if filters.order == 'asc' else '▼' }}</span>
+                {% else %}
+                  <span class="sort-arrow muted">⇅</span>
+                {% endif %}
+              </a>
             </th>
             {{ sort_th('Sec', 'sec') }}
             <th>Victim</th>
-            <th data-group-col="victim_ship">
-              <div class="th-controls">
-                <span>Victim Ship</span>
-                {% set next_group = '' if filters.group_by == 'victim_ship' else 'victim_ship' %}
-                <a role="button" class="group-toggle{% if filters.group_by == 'victim_ship' %} active{% endif %}" href="?{{ filters.filter_qs }}{% if filters.filter_qs %}&{% endif %}sort={{ filters.sort }}&order={{ filters.order }}{% if next_group %}&group_by={{ next_group }}{% endif %}">
-                  {{ 'Ungroup' if filters.group_by == 'victim_ship' else 'Group' }}
-                </a>
-              </div>
-            </th>
+            <th data-group-col="victim_ship" data-group-label="Victim Ship">Victim Ship</th>
             {{ sort_th('Attackers', 'attackers') }}
             {{ sort_th('Jumps', 'jumps') }}
             {{ sort_th('ISK Lost', 'total_value') }}
@@ -247,20 +233,20 @@
                     {{ kill.killmail_time[:16].replace('T', ' ') }}
                   </a>
                 </td>
-                <td class="system-name" data-group-target="system" data-group-value="{{ kill.system_name or kill.solar_system_id }}"><a href="/?system_id={{ kill.solar_system_id }}">{{ kill.system_name or kill.solar_system_id }}</a></td>
+                <td class="system-name quick-filterable" data-group-target="system" data-group-value="{{ kill.system_name or kill.solar_system_id }}" data-filter-field="system_id" data-filter-value="{{ kill.solar_system_id }}" data-filter-label="{{ kill.system_name or kill.solar_system_id }}"><a href="/?system_id={{ kill.solar_system_id }}">{{ kill.system_name or kill.solar_system_id }}</a></td>
                 <td>
                   <span class="sec-badge {{ kill.security_status | security_color }}">
                     {{ kill.security_status | security_display }}
                   </span>
                 </td>
-                <td>
+                <td{% if kill.victim_character_id %} class="quick-filterable" data-filter-field="character_id" data-filter-value="{{ kill.victim_character_id }}" data-filter-label="{{ kill.victim_name or kill.victim_character_id }}"{% endif %}>
                   {% if kill.victim_character_id %}
                     <a href="/?character_id={{ kill.victim_character_id }}">{{ kill.victim_name or kill.victim_character_id }}</a>
                   {% else %}
                     <span class="unknown">NPC / Unknown</span>
                   {% endif %}
                 </td>
-                <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}">
+                <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}"{% if kill.victim_ship_type_id %} class="quick-filterable" data-filter-field="ship_type_id" data-filter-value="{{ kill.victim_ship_type_id }}" data-filter-label="{{ kill.victim_ship_name or kill.victim_ship_type_id }}"{% endif %}>
                   {% if kill.victim_ship_name %}
                     <a href="/?ship_type_id={{ kill.victim_ship_type_id }}">{{ kill.victim_ship_name }}</a>
                   {% else %}
@@ -295,20 +281,20 @@
                   {{ kill.killmail_time[:16].replace('T', ' ') }}
                 </a>
               </td>
-              <td class="system-name" data-group-target="system" data-group-value="{{ kill.system_name or kill.solar_system_id }}"><a href="/?system_id={{ kill.solar_system_id }}">{{ kill.system_name or kill.solar_system_id }}</a></td>
+              <td class="system-name quick-filterable" data-group-target="system" data-group-value="{{ kill.system_name or kill.solar_system_id }}" data-filter-field="system_id" data-filter-value="{{ kill.solar_system_id }}" data-filter-label="{{ kill.system_name or kill.solar_system_id }}"><a href="/?system_id={{ kill.solar_system_id }}">{{ kill.system_name or kill.solar_system_id }}</a></td>
               <td>
                 <span class="sec-badge {{ kill.security_status | security_color }}">
                   {{ kill.security_status | security_display }}
                 </span>
               </td>
-              <td>
+              <td{% if kill.victim_character_id %} class="quick-filterable" data-filter-field="character_id" data-filter-value="{{ kill.victim_character_id }}" data-filter-label="{{ kill.victim_name or kill.victim_character_id }}"{% endif %}>
                 {% if kill.victim_character_id %}
                   <a href="/?character_id={{ kill.victim_character_id }}">{{ kill.victim_name or kill.victim_character_id }}</a>
                 {% else %}
                   <span class="unknown">NPC / Unknown</span>
                 {% endif %}
               </td>
-              <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}">
+              <td data-group-target="victim_ship" data-group-value="{{ kill.victim_ship_name or 'Unknown' }}"{% if kill.victim_ship_type_id %} class="quick-filterable" data-filter-field="ship_type_id" data-filter-value="{{ kill.victim_ship_type_id }}" data-filter-label="{{ kill.victim_ship_name or kill.victim_ship_type_id }}"{% endif %}>
                 {% if kill.victim_ship_name %}
                   <a href="/?ship_type_id={{ kill.victim_ship_type_id }}">{{ kill.victim_ship_name }}</a>
                 {% else %}
@@ -337,6 +323,14 @@
           {% endif %}
         </tbody>
       </table>
+    </div>
+    <div id="column-context-menu" class="column-context-menu" hidden>
+      <button type="button" data-action="group"></button>
+      <button type="button" data-action="ungroup">Ungroup</button>
+    </div>
+    <div id="value-context-menu" class="value-context-menu" hidden>
+      <button type="button" data-action="show-matching"></button>
+      <button type="button" data-action="filter-out"></button>
     </div>
 
     <!-- Pagination -->
@@ -632,6 +626,163 @@ function setupGroupedRows() {
   });
 }
 
+
+function setupGroupContextMenu() {
+  const menu = document.getElementById('column-context-menu');
+  const groupButton = menu?.querySelector('[data-action="group"]');
+  const ungroupButton = menu?.querySelector('[data-action="ungroup"]');
+  const headers = Array.from(document.querySelectorAll('th[data-group-col]'));
+  const currentGroupBy = '{{ filters.group_by }}';
+  if (!menu || !groupButton || !ungroupButton || !headers.length) return;
+
+  let activeColumn = '';
+
+  function navigateWithGroup(groupBy) {
+    const url = new URL(window.location.href);
+    if (groupBy) {
+      url.searchParams.set('group_by', groupBy);
+    } else {
+      url.searchParams.delete('group_by');
+    }
+    url.searchParams.delete('page');
+    window.location.href = url.toString();
+  }
+
+  function closeMenu() {
+    menu.hidden = true;
+  }
+
+  function positionMenu(x, y) {
+    menu.hidden = false;
+    const padding = 8;
+    const width = menu.offsetWidth;
+    const height = menu.offsetHeight;
+    const maxLeft = window.innerWidth - width - padding;
+    const maxTop = window.innerHeight - height - padding;
+    menu.style.left = `${Math.max(padding, Math.min(x, maxLeft))}px`;
+    menu.style.top = `${Math.max(padding, Math.min(y, maxTop))}px`;
+  }
+
+  headers.forEach((header) => {
+    header.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      activeColumn = header.dataset.groupCol || '';
+      const label = header.dataset.groupLabel || activeColumn;
+      groupButton.textContent = `Group by ${label}`;
+      groupButton.disabled = !activeColumn || currentGroupBy === activeColumn;
+      ungroupButton.disabled = !currentGroupBy;
+      positionMenu(event.clientX, event.clientY);
+    });
+  });
+
+  groupButton.addEventListener('click', () => {
+    if (activeColumn) navigateWithGroup(activeColumn);
+  });
+
+  ungroupButton.addEventListener('click', () => {
+    navigateWithGroup('');
+  });
+
+  document.addEventListener('click', (event) => {
+    if (menu.hidden) return;
+    if (!menu.contains(event.target)) closeMenu();
+  });
+  document.addEventListener('contextmenu', (event) => {
+    if (menu.hidden) return;
+    const inMenu = menu.contains(event.target);
+    const inHeader = event.target.closest('th[data-group-col]');
+    if (!inMenu && !inHeader) closeMenu();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMenu();
+  });
+  window.addEventListener('resize', closeMenu);
+  document.addEventListener('scroll', closeMenu, true);
+}
+
+function setupValueContextMenu() {
+  const menu = document.getElementById('value-context-menu');
+  const showButton = menu?.querySelector('[data-action="show-matching"]');
+  const hideButton = menu?.querySelector('[data-action="filter-out"]');
+  const targets = Array.from(document.querySelectorAll('[data-filter-field][data-filter-value]'));
+  if (!menu || !showButton || !hideButton || !targets.length) return;
+
+  let activeField = '';
+  let activeValue = '';
+  let activeLabel = '';
+
+  function closeMenu() {
+    menu.hidden = true;
+  }
+
+  function positionMenu(x, y) {
+    menu.hidden = false;
+    const padding = 8;
+    const width = menu.offsetWidth;
+    const height = menu.offsetHeight;
+    const maxLeft = window.innerWidth - width - padding;
+    const maxTop = window.innerHeight - height - padding;
+    menu.style.left = `${Math.max(padding, Math.min(x, maxLeft))}px`;
+    menu.style.top = `${Math.max(padding, Math.min(y, maxTop))}px`;
+  }
+
+  function navigate(action) {
+    if (!activeField || !activeValue) return;
+    const url = new URL(window.location.href);
+    const includeKey = activeField;
+    const excludeKey = `exclude_${activeField}`;
+
+    if (action === 'show') {
+      url.searchParams.set(includeKey, activeValue);
+      url.searchParams.delete(excludeKey);
+    } else {
+      url.searchParams.set(excludeKey, activeValue);
+      if (url.searchParams.get(includeKey) === activeValue) {
+        url.searchParams.delete(includeKey);
+      }
+    }
+
+    url.searchParams.delete('page');
+    window.location.href = url.toString();
+  }
+
+  targets.forEach((target) => {
+    target.addEventListener('contextmenu', (event) => {
+      const cell = event.target.closest('[data-filter-field][data-filter-value]');
+      if (!cell) return;
+
+      event.preventDefault();
+      activeField = cell.dataset.filterField || '';
+      activeValue = cell.dataset.filterValue || '';
+      activeLabel = cell.dataset.filterLabel || activeValue;
+      if (!activeField || !activeValue) return;
+
+      showButton.textContent = `Show matching: ${activeLabel}`;
+      hideButton.textContent = `Filter out: ${activeLabel}`;
+      positionMenu(event.clientX, event.clientY);
+    });
+  });
+
+  showButton.addEventListener('click', () => navigate('show'));
+  hideButton.addEventListener('click', () => navigate('hide'));
+
+  document.addEventListener('click', (event) => {
+    if (menu.hidden) return;
+    if (!menu.contains(event.target)) closeMenu();
+  });
+  document.addEventListener('contextmenu', (event) => {
+    if (menu.hidden) return;
+    const inMenu = menu.contains(event.target);
+    const inTarget = event.target.closest('[data-filter-field][data-filter-value]');
+    if (!inMenu && !inTarget) closeMenu();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMenu();
+  });
+  window.addEventListener('resize', closeMenu);
+  document.addEventListener('scroll', closeMenu, true);
+}
+
 restoreRememberedFilters();
 setupMultiItemFilter();
 rememberFiltersOnSubmit();
@@ -640,5 +791,8 @@ setupAutocomplete('system-name-input', 'system_id', '/api/system-search', 'syste
 setupAutocomplete('route-source-system-name-input', 'route_source_system_id', '/api/system-search', 'system_id');
 setupIskRangeFilter();
 setupGroupedRows();
+setupGroupContextMenu();
+setupValueContextMenu();
 </script>
 {% endblock %}
+

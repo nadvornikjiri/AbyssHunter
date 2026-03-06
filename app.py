@@ -14,12 +14,20 @@ import gank
 
 # In-memory job store: job_id -> progress dict (lives only for this process run)
 _jobs: dict = {}
-# Separate dict for cancel events — threading.Event is not JSON-serialisable
+# Separate dict for cancel events  threading.Event is not JSON-serialisable
 _job_cancel_events: dict = {}
+_job_conns: dict = {}
 _clear_job: dict = {}   # keys: running, done, count, error
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
+class _SuppressSyncStatusAccessLogs(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return "GET /api/sync/status/" not in msg
+
+
+logging.getLogger("werkzeug").addFilter(_SuppressSyncStatusAccessLogs())
 
 app = Flask(__name__)
 app.secret_key = "eve-killmail-browser-dev-secret"  # change for production
@@ -111,7 +119,7 @@ def close_db(error):
 @app.template_filter("isk")
 def format_isk(value: float) -> str:
     if value is None:
-        return "—"
+        return "-"
     if value >= 1_000_000_000:
         return f"{value / 1_000_000_000:.2f}B"
     if value >= 1_000_000:
@@ -211,8 +219,11 @@ def _parse_filters() -> dict:
         "item_ids": _int_list("item_id"),
         "item_match": item_match,
         "ship_type_id": _int("ship_type_id"),
+        "exclude_ship_type_id": _int("exclude_ship_type_id"),
         "character_id": _int("character_id"),
+        "exclude_character_id": _int("exclude_character_id"),
         "system_id": _int("system_id"),
+        "exclude_system_id": _int("exclude_system_id"),
         "route_source_system_id": _int("route_source_system_id"),
         "route_flag": request.args.get("route_flag", "shortest").strip().lower(),
         "min_isk_lost": min_isk_lost,
@@ -250,8 +261,11 @@ def index():
         "item_ids": filters["item_ids"],
         "item_match": filters["item_match"],
         "ship_type_id": filters["ship_type_id"],
+        "exclude_ship_type_id": filters["exclude_ship_type_id"],
         "character_id": filters["character_id"],
+        "exclude_character_id": filters["exclude_character_id"],
         "system_id": filters["system_id"],
+        "exclude_system_id": filters["exclude_system_id"],
         "min_isk_lost": filters["min_isk_lost"],
         "max_isk_lost": filters["max_isk_lost"],
         "min_sec": filters["min_sec"],
@@ -402,6 +416,8 @@ def kill_detail(killmail_id: int):
 @app.route("/sync", methods=["GET", "POST"])
 def sync():
     if request.method == "POST":
+        sync_action = request.form.get("sync_action", "bulk").strip().lower()
+        run_gank_only = sync_action == "gank_only"
         days_back = max(1, int(request.form.get("days_back", 1)))
         job_id = uuid.uuid4().hex[:12]
         cancel_event = threading.Event()
@@ -409,11 +425,12 @@ def sync():
             "done": False,
             "cancelled": False,
             "error": None,
+            "job_mode": ("gank_only" if run_gank_only else "bulk"),
             "phase": "starting",
-            "message": "Starting…",
+            "message": "Starting",
             # Download progress
             "dl_files_done": 0,
-            "dl_files_total": days_back,
+            "dl_files_total": (0 if run_gank_only else days_back),
             "dl_bytes_done": 0.0,
             "dl_rate_mbps": 0.0,
             "dl_file_progress": {},
@@ -437,17 +454,31 @@ def sync():
 
         def _run():
             conn = db.get_db()
+            _job_conns[job_id] = conn
             try:
-                summary = fetcher.sync_kills_everef(
-                    conn, days_back=days_back, progress=progress, cancel_event=cancel_event
-                )
-                # sync_kills_everef sets done=True itself on cancellation
-                if progress.get("cancelled"):
-                    return
-                progress["phase"] = "gank_detection"
-                progress["message"] = "Running gank detection…"
-                gank_summary = gank.run_phase2_gank_detection(conn, progress=progress)
-                conn.commit()
+                if run_gank_only:
+                    progress.update({
+                        "phase": "gank_detection",
+                        "message": "Running gank detection...",
+                        "gank_phase": "running",
+                    })
+                    gank_summary = gank.run_phase2_gank_detection(
+                        conn, progress=progress, cancel_event=cancel_event
+                    )
+                    conn.commit()
+                    summary = {"fetched": 0, "new": 0, "ingested": 0, "skipped": 0, "errors": 0}
+                else:
+                    summary = fetcher.sync_kills_everef(
+                        conn, days_back=days_back, progress=progress, cancel_event=cancel_event
+                    )
+                    # sync_kills_everef sets done=True itself on cancellation
+                    if progress.get("cancelled"):
+                        return
+                    gank_summary = summary.get("gank_summary") or {
+                        "concord_kills_checked": 0,
+                        "newly_confirmed": 0,
+                        "already_confirmed": 0,
+                    }
                 progress.update({
                     "done": True,
                     "phase": "done",
@@ -456,9 +487,19 @@ def sync():
                     "gank_summary": gank_summary,
                 })
             except Exception as e:
-                logger.exception("Background sync failed")
-                progress.update({"done": True, "error": str(e), "phase": "error"})
+                if cancel_event.is_set():
+                    logger.info("Background sync cancelled for job %s", job_id)
+                    progress.update({
+                        "done": True,
+                        "cancelled": True,
+                        "phase": "cancelled",
+                        "message": "Cancelled.",
+                    })
+                else:
+                    logger.exception("Background sync failed")
+                    progress.update({"done": True, "error": str(e), "phase": "error"})
             finally:
+                _job_conns.pop(job_id, None)
                 conn.close()
 
         threading.Thread(target=_run, daemon=True).start()
@@ -506,15 +547,35 @@ def sync_cancel(job_id: str):
     event = _job_cancel_events.get(job_id)
     if event is None:
         return jsonify({"ok": False, "error": "not found"}), 404
-    event.set()
-    return jsonify({"ok": True})
+
+    cancelled_jobs = []
+    for jid, job in _jobs.items():
+        if job.get("done"):
+            continue
+        ev = _job_cancel_events.get(jid)
+        if ev is not None:
+            ev.set()
+        conn = _job_conns.get(jid)
+        if conn is not None:
+            try:
+                conn.interrupt()
+            except Exception:
+                logger.exception("Failed to interrupt DB connection for job %s", jid)
+        job.update({
+            "cancelled": True,
+            "phase": "cancelling",
+            "message": "Cancellation requested - stopping running tasks...",
+        })
+        cancelled_jobs.append(jid)
+
+    return jsonify({"ok": True, "cancelled_jobs": cancelled_jobs})
 
 
 @app.route("/admin/clear-db", methods=["POST"])
 def admin_clear_db():
     logger.info("admin_clear_db: request received")
     if any(not j.get("done") for j in _jobs.values()):
-        logger.warning("admin_clear_db: blocked — sync in progress")
+        logger.warning("admin_clear_db: blocked  sync in progress")
         flash("Cannot clear the database while a sync is running.", "error")
         return redirect(url_for("sync"))
     if _clear_job.get("running"):
@@ -551,7 +612,7 @@ def clear_done():
     """Relay route: flashes the success message then bounces to /sync."""
     job = _clear_job
     if job.get("done") and not job.get("error"):
-        flash(f"Database cleared — {job.get('count', 0):,} killmail(s) removed.", "success")
+        flash(f"Database cleared  {job.get('count', 0):,} killmail(s) removed.", "success")
     elif job.get("error"):
         flash(f"Clear failed: {job['error']}", "error")
     return redirect(url_for("sync"))
@@ -560,7 +621,7 @@ def clear_done():
 @app.route("/admin/refresh-prices", methods=["POST"])
 def admin_refresh_prices():
     prices = fetcher.fetch_market_prices(force=True)
-    flash(f"Market prices refreshed — {len(prices):,} items loaded from ESI.", "success")
+    flash(f"Market prices refreshed  {len(prices):,} items loaded from ESI.", "success")
     return redirect(url_for("sync"))
 
 
